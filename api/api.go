@@ -24,13 +24,13 @@ const (
 
 const defaultAddress = "127.0.0.1:8081"
 
-func Run(addr string, dk DataKeeper) error {
+func Run(addr string, st Storage) error {
 	if addr == "" {
 		addr = defaultAddress
 	}
 	router := mux.NewRouter()
-	addMiddlewaresToRouter(router, dk)
-	addHandlersToRouter(router, dk)
+	addMiddlewaresToRouter(router, st)
+	addHandlersToRouter(router, st)
 
 	log.Printf("API listening on %s...", addr)
 	if err := http.ListenAndServe(addr, router); err != nil {
@@ -39,35 +39,35 @@ func Run(addr string, dk DataKeeper) error {
 	return nil
 }
 
-func addMiddlewaresToRouter(router *mux.Router, dk DataKeeper) {
+func addMiddlewaresToRouter(router *mux.Router, st Storage) {
 	router.Use(authorizationMiddleware)
-	router.Use(gettingDrawingMiddleware(dk))
+	router.Use(gettingDrawingMiddleware(st))
 }
 
-func addHandlersToRouter(router *mux.Router, dk DataKeeper) {
-	router.HandleFunc("/login", loginHandler(dk)).Methods(http.MethodPost)
+func addHandlersToRouter(router *mux.Router, st Storage) {
+	router.HandleFunc("/login", loginHandler(st)).Methods(http.MethodPost)
 
-	router.HandleFunc("/users", usersListHandler(dk)).Methods(http.MethodGet)
-	router.HandleFunc("/users", userCreatingHandler(dk)).Methods(http.MethodPost)
+	router.HandleFunc("/users", usersListHandler(st)).Methods(http.MethodGet)
+	router.HandleFunc("/users", userCreatingHandler(st)).Methods(http.MethodPost)
 
-	router.HandleFunc("/users/{id:[0-9]+}", userGettingHandler(dk)).Methods(http.MethodGet)
-	router.HandleFunc("/users/{id:[0-9]+}", userUpdatingHandler(dk)).Methods(http.MethodPut)
-	router.HandleFunc("/users/{id:[0-9]+}", userRemovingHandler(dk)).Methods(http.MethodDelete)
+	router.HandleFunc("/users/{id:[0-9]+}", userGettingHandler(st)).Methods(http.MethodGet)
+	router.HandleFunc("/users/{id:[0-9]+}", userUpdatingHandler(st)).Methods(http.MethodPut)
+	router.HandleFunc("/users/{id:[0-9]+}", userRemovingHandler(st)).Methods(http.MethodDelete)
 
-	router.HandleFunc("/drawings", drawingsListGettingHandler(dk)).Methods(http.MethodGet)
-	router.HandleFunc("/drawings", drawingCreatingHandler(dk)).Methods(http.MethodPost)
+	router.HandleFunc("/drawings", drawingsListGettingHandler(st)).Methods(http.MethodGet)
+	router.HandleFunc("/drawings", drawingCreatingHandler(st)).Methods(http.MethodPost)
 
 	router.HandleFunc("/drawings/{id:[0-9]+}", drawingGettingHandler).Methods(http.MethodGet)
-	router.HandleFunc("/drawings/{id:[0-9]+}", drawingDeletingHandler(dk)).Methods(http.MethodDelete)
+	router.HandleFunc("/drawings/{id:[0-9]+}", drawingDeletingHandler(st)).Methods(http.MethodDelete)
 
 	router.HandleFunc("/drawings/{id:[0-9]+}/image", drawingImageHandler).Methods(http.MethodGet)
 
 	router.HandleFunc("/drawings/{id:[0-9]+}/points", drawingPointsHandler).Methods(http.MethodGet)
-	router.HandleFunc("/drawings/{id:[0-9]+}/points", drawingPointsAddingHandler(dk)).Methods(http.MethodPost)
+	router.HandleFunc("/drawings/{id:[0-9]+}/points", drawingPointsAddingHandler(st)).Methods(http.MethodPost)
 
 	router.HandleFunc("/drawings/{id:[0-9]+}/points/{point_num:[0-9]+}", drawingPointGettingHandler).Methods(http.MethodGet)
-	router.HandleFunc("/drawings/{id:[0-9]+}/points/{point_num:[0-9]+}", drawingPointUpdatingHandler(dk)).Methods(http.MethodPut)
-	router.HandleFunc("/drawings/{id:[0-9]+}/points/{point_num:[0-9]+}", drawingPointDeletingHandler(dk)).Methods(http.MethodDelete)
+	router.HandleFunc("/drawings/{id:[0-9]+}/points/{point_num:[0-9]+}", drawingPointUpdatingHandler(st)).Methods(http.MethodPut)
+	router.HandleFunc("/drawings/{id:[0-9]+}/points/{point_num:[0-9]+}", drawingPointDeletingHandler(st)).Methods(http.MethodDelete)
 }
 
 // ===========
