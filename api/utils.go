@@ -1,58 +1,47 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/maxsid/goCeilings/value"
+	"io"
 	"io/ioutil"
-	"log"
+	"math"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strconv"
 )
 
 const (
-	defaultPage           = 1
-	defaultPageLimit      = 30
-	pageVariableName      = "p"
-	pageLimitVariableName = "lim"
+	defaultPage      = 1
+	defaultPageLimit = 30
 )
 
+type ctxKey int
+type pathVarKey string
+type urlParamKey string
+
+// readListStatData reads a number of the page and the page limit,
+// calculates amount of the pages from the amount of elements, specified in parameter.
 func readListStatData(vars url.Values, amount uint) (*ListStatData, error) {
 	listStat := ListStatData{Amount: amount, Page: defaultPage, PageLimit: defaultPageLimit}
-	if page, err := readUintURLVar(vars, pageVariableName); err == nil {
-		listStat.Page = page
-	} else if !errors.Is(err, ErrCouldNotExistURLVariable) {
+	if err := parseURLParamValue(vars, urlParamPage, &listStat.Page); err != nil && !errors.Is(err, ErrNotFound) {
 		return nil, err
 	}
-	if limit, err := readUintURLVar(vars, pageLimitVariableName); err == nil {
-		listStat.PageLimit = limit
-	} else if !errors.Is(err, ErrCouldNotExistURLVariable) {
+	if err := parseURLParamValue(vars, urlParamPageLimit, &listStat.PageLimit); err != nil && !errors.Is(err, ErrNotFound) {
 		return nil, err
 	}
-	if ps := amount / listStat.PageLimit; amount%listStat.PageLimit != 0 {
-		listStat.Pages = ps + 1
-	} else {
-		listStat.Pages = ps
-	}
+	listStat.Pages = uint(math.Ceil(float64(amount) / float64(listStat.PageLimit)))
 	if listStat.Page > listStat.Pages {
 		listStat.Page = listStat.Pages
 	}
 	return &listStat, nil
 }
 
-func readUintURLVar(vars url.Values, varName string) (uint, error) {
-	if v := vars.Get(varName); v != "" {
-		if v, err := strconv.ParseUint(v, 10, 64); err == nil {
-			return uint(v), nil
-		} else {
-			return 0, err
-		}
-	}
-	return 0, ErrCouldNotExistURLVariable
-}
-
+// addRequestPointsToDrawing calculates and adds points to the Drawing from PointCalculating requests.
 func addRequestPointsToDrawing(drawing *Drawing, points ...*PointCalculating) error {
 	for _, p := range points {
 		if p.Direction != nil && p.Distance != 0 {
@@ -70,11 +59,10 @@ func addRequestPointsToDrawing(drawing *Drawing, points ...*PointCalculating) er
 	return nil
 }
 
+// marshalAndWrite does marshal of v variable and writes result into http.ResponseWriter.
 func marshalAndWrite(w http.ResponseWriter, v interface{}) {
 	data, err := json.Marshal(v)
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		log.Print(err)
+	if writeError(w, err) {
 		return
 	}
 
@@ -82,39 +70,161 @@ func marshalAndWrite(w http.ResponseWriter, v interface{}) {
 	_, _ = fmt.Fprintf(w, "%s", data)
 }
 
-func unmarshalRequestBody(w http.ResponseWriter, req *http.Request, v interface{}) bool {
-	defer req.Body.Close()
-	requestBody, err := ioutil.ReadAll(req.Body)
+// unmarshalReaderContent does unmarshal of v argument into v variable.
+func unmarshalReaderContent(body io.ReadCloser, v interface{}) error {
+	defer body.Close()
+	bodyBytes, err := ioutil.ReadAll(body)
 	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		log.Print(err)
-		return false
+		return err
 	}
-	if len(requestBody) == 0 {
-		http.Error(w, "Bad Request: Got empty body", http.StatusBadRequest)
-		return false
+	if len(bodyBytes) == 0 {
+		return ErrEmptyRequestBody
 	}
-	if err := json.Unmarshal(requestBody, v); err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		log.Print(err)
-		return false
+	if err := json.Unmarshal(bodyBytes, v); err != nil {
+		return err
 	}
-	return true
+	return nil
 }
 
-func readMeasureAndPrecisionFromURL(w http.ResponseWriter, req *http.Request, measure value.Measure, precision int) (value.Measure, int, bool) {
-	if p := req.URL.Query().Get("p"); p != "" {
-		var err error
-		if precision, err = strconv.Atoi(p); err != nil || precision < 0 {
-			http.Error(w, "Bad Request", http.StatusBadRequest)
-			return 0, 0, false
+// readLengthMeasureAndPrecision parses and writes measure and precision from specified GET URL parameters.
+func readLengthMeasureAndPrecision(vars url.Values, measure *value.Measure, precision *int) error {
+	wasPrecision := *precision
+	if err := parseURLParamValue(vars, urlParamPrecision, precision); err != nil && !errors.Is(err, ErrNotFound) {
+		return err
+	}
+	if *precision < 0 {
+		*precision = wasPrecision
+		return fmt.Errorf("%w of precision (%s) - the parameter less then zero", ErrCouldNotReadURLParameter, urlParamPrecision)
+	}
+	measureName := ""
+	if err := parseURLParamValue(vars, urlParamMeasure, &measureName); err != nil && !errors.Is(err, ErrNotFound) {
+		return err
+	}
+	if measureName != "" {
+		if readMeasure := value.LengthMeasureByName(measureName); readMeasure == 0 {
+			return fmt.Errorf("%w of measure (%s)", ErrCouldNotReadURLParameter, urlParamMeasure)
+		} else {
+			*measure = readMeasure
 		}
 	}
-	if m := req.URL.Query().Get("m"); m != "" {
-		if measure = value.LengthMeasureByName(m); measure == 0 {
-			http.Error(w, "Bad Request", http.StatusBadRequest)
-			return 0, 0, false
+	return nil
+}
+
+// parseURLParamValue checks existing of URL parameter, then parses and write it to v parameter.
+// Parsing performs into v type.
+func parseURLParamValue(vars url.Values, key urlParamKey, v interface{}) error {
+	paramValue := vars.Get(string(key))
+	if paramValue == "" {
+		return fmt.Errorf("%w %s url parameter", ErrNotFound, key)
+	}
+	if err := parseString(v, paramValue); err != nil {
+		if errors.Is(err, strconv.ErrSyntax) {
+			return fmt.Errorf("%w - syntax error", ErrCouldNotReadURLParameter)
+		}
+		return err
+	}
+	return nil
+}
+
+// parsePathValue checks existing of mux path variable, then parses and write it to v parameter.
+// Parsing performs into v type.
+func parsePathValue(vars map[string]string, key pathVarKey, v interface{}) error {
+	pathValue, ok := vars[string(key)]
+	if !ok {
+		return fmt.Errorf("%w %s path value", ErrNotFound, key)
+	}
+	if err := parseString(v, pathValue); err != nil {
+		if errors.Is(err, strconv.ErrSyntax) {
+			return fmt.Errorf("%w - syntax error", ErrCouldNotReadPathVar)
+		}
+		return err
+	}
+	return nil
+}
+
+// readCtxValue gets value with key from context ctx and write it in v argument, which must be a settable.
+func readCtxValue(ctx context.Context, key ctxKey, v interface{}) error {
+	valueOfV, err := getSettable(v)
+	if err != nil {
+		return err
+	}
+	ctxValue := ctx.Value(key)
+	if ctxValue == nil {
+		return fmt.Errorf("%w: got a nil value", ErrCouldNotReadCtxValue)
+	}
+	valueOfCtxV := reflect.ValueOf(ctxValue)
+	if valueOfCtxV.Kind() == reflect.Ptr {
+		valueOfCtxV = valueOfCtxV.Elem()
+	}
+	if got, want := valueOfCtxV.Type(), valueOfV.Type(); got != want {
+		return fmt.Errorf("%w: got different values types. Got %s, want %s", ErrCouldNotReadCtxValue, got, want)
+	}
+	valueOfV.Set(valueOfCtxV)
+	return nil
+}
+
+// getSettable returns reflect.Value object of a settable parameter.
+func getSettable(v interface{}) (*reflect.Value, error) {
+	valueOfV := reflect.ValueOf(v)
+	if !valueOfV.CanSet() {
+		if valueOfV.Kind() == reflect.Ptr {
+			valueOfV = valueOfV.Elem()
+		} else {
+			return nil, ErrValueIsNotSettable
 		}
 	}
-	return measure, precision, true
+	return &valueOfV, nil
+}
+
+// parseString parses string value and write it to v parameter.
+// Parsing performs into v type.
+func parseString(v interface{}, parsingString string) (err error) {
+	valueOfV, err := getSettable(v)
+	if err != nil {
+		return err
+	}
+	var setValue interface{}
+	switch valueOfV.Kind() {
+	case reflect.String:
+		setValue = parsingString
+	case reflect.Int:
+		setValue, err = strconv.Atoi(parsingString)
+	case reflect.Int64:
+		setValue, err = strconv.ParseInt(parsingString, 10, 64)
+	case reflect.Int32:
+		setValue, err = strconv.ParseInt(parsingString, 10, 32)
+	case reflect.Int16:
+		setValue, err = strconv.ParseInt(parsingString, 10, 16)
+	case reflect.Int8:
+		setValue, err = strconv.ParseInt(parsingString, 10, 8)
+	case reflect.Uint:
+		sv64 := uint64(0)
+		sv64, err = strconv.ParseUint(parsingString, 10, 64)
+		setValue = uint(sv64)
+	case reflect.Uint64:
+		setValue, err = strconv.ParseUint(parsingString, 10, 64)
+	case reflect.Uint32:
+		setValue, err = strconv.ParseUint(parsingString, 10, 32)
+	case reflect.Uint16:
+		setValue, err = strconv.ParseUint(parsingString, 10, 16)
+	case reflect.Uint8:
+		setValue, err = strconv.ParseUint(parsingString, 10, 8)
+	case reflect.Bool:
+		setValue, err = strconv.ParseBool(parsingString)
+	case reflect.Float64:
+		setValue, err = strconv.ParseFloat(parsingString, 64)
+	case reflect.Float32:
+		setValue, err = strconv.ParseFloat(parsingString, 32)
+	case reflect.Complex64:
+		setValue, err = strconv.ParseComplex(parsingString, 64)
+	case reflect.Complex128:
+		setValue, err = strconv.ParseComplex(parsingString, 128)
+	default:
+		return ErrWrongValueKind
+	}
+	if err != nil {
+		return
+	}
+	valueOfV.Set(reflect.ValueOf(setValue))
+	return
 }

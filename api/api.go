@@ -11,15 +11,28 @@ import (
 	"log"
 	"net/http"
 	"regexp"
-	"strconv"
 	"time"
 )
 
-type middlewareKey int
+const (
+	ctxKeyUser = ctxKey(iota)
+	ctxKeyDrawing
+	ctxKeyPointIndex
+	ctxKeyPoint
+)
 
 const (
-	userIDMiddlewareKey = middlewareKey(iota)
-	drawingMiddlewareKey
+	pathVarUserID      = pathVarKey("user_id")
+	pathVarDrawingID   = pathVarKey("drawing_id")
+	pathVarPointNumber = pathVarKey("point_num")
+)
+
+const (
+	urlParamInfo      = urlParamKey("info")
+	urlParamPage      = urlParamKey("p")
+	urlParamPageLimit = urlParamKey("lim")
+	urlParamPrecision = urlParamKey("p")
+	urlParamMeasure   = urlParamKey("m")
 )
 
 const defaultAddress = "127.0.0.1:8081"
@@ -29,8 +42,8 @@ func Run(addr string, st Storage) error {
 		addr = defaultAddress
 	}
 	router := mux.NewRouter()
-	addMiddlewaresToRouter(router, st)
 	addHandlersToRouter(router, st)
+	addMiddlewaresToRouter(router, st)
 
 	log.Printf("API listening on %s...", addr)
 	if err := http.ListenAndServe(addr, router); err != nil {
@@ -42,32 +55,41 @@ func Run(addr string, st Storage) error {
 func addMiddlewaresToRouter(router *mux.Router, st Storage) {
 	router.Use(authorizationMiddleware)
 	router.Use(gettingDrawingMiddleware(st))
+	router.Use(gettingPointMiddleware)
+	router.Use(mux.CORSMethodMiddleware(router))
 }
 
 func addHandlersToRouter(router *mux.Router, st Storage) {
 	router.HandleFunc("/login", loginHandler(st)).Methods(http.MethodPost)
 
-	router.HandleFunc("/users", usersListHandler(st)).Methods(http.MethodGet)
-	router.HandleFunc("/users", userCreatingHandler(st)).Methods(http.MethodPost)
+	path := "/users"
+	router.HandleFunc(path, getUsersListHandler(st)).Methods(http.MethodGet)
+	router.HandleFunc(path, getUserCreatingHandler(st)).Methods(http.MethodPost)
 
-	router.HandleFunc("/users/{id:[0-9]+}", userGettingHandler(st)).Methods(http.MethodGet)
-	router.HandleFunc("/users/{id:[0-9]+}", userUpdatingHandler(st)).Methods(http.MethodPut)
-	router.HandleFunc("/users/{id:[0-9]+}", userRemovingHandler(st)).Methods(http.MethodDelete)
+	path = fmt.Sprintf("/users/{%s:[0-9]+}", pathVarUserID)
+	router.HandleFunc(path, getUserGettingHandler(st)).Methods(http.MethodGet)
+	router.HandleFunc(path, getUserUpdatingHandler(st)).Methods(http.MethodPut)
+	router.HandleFunc(path, getUserRemovingHandler(st)).Methods(http.MethodDelete)
 
-	router.HandleFunc("/drawings", drawingsListGettingHandler(st)).Methods(http.MethodGet)
-	router.HandleFunc("/drawings", drawingCreatingHandler(st)).Methods(http.MethodPost)
+	path = "/drawings"
+	router.HandleFunc(path, getDrawingsListGettingHandler(st)).Methods(http.MethodGet)
+	router.HandleFunc(path, getDrawingCreatingHandler(st)).Methods(http.MethodPost)
 
-	router.HandleFunc("/drawings/{id:[0-9]+}", drawingGettingHandler).Methods(http.MethodGet)
-	router.HandleFunc("/drawings/{id:[0-9]+}", drawingDeletingHandler(st)).Methods(http.MethodDelete)
+	path = fmt.Sprintf("/drawings/{%s:[0-9]+}", pathVarDrawingID)
+	router.HandleFunc(path, drawingGettingHandler).Methods(http.MethodGet)
+	router.HandleFunc(path, getDrawingDeletingHandler(st)).Methods(http.MethodDelete)
 
-	router.HandleFunc("/drawings/{id:[0-9]+}/image", drawingImageHandler).Methods(http.MethodGet)
+	path = fmt.Sprintf("/drawings/{%s:[0-9]+}/image", pathVarDrawingID)
+	router.HandleFunc(path, drawingImageHandler).Methods(http.MethodGet)
 
-	router.HandleFunc("/drawings/{id:[0-9]+}/points", drawingPointsHandler).Methods(http.MethodGet)
-	router.HandleFunc("/drawings/{id:[0-9]+}/points", drawingPointsAddingHandler(st)).Methods(http.MethodPost)
+	path = fmt.Sprintf("/drawings/{%s:[0-9]+}/points", pathVarDrawingID)
+	router.HandleFunc(path, drawingPointsGettingHandler).Methods(http.MethodGet)
+	router.HandleFunc(path, getDrawingPointsAddingHandler(st)).Methods(http.MethodPost)
 
-	router.HandleFunc("/drawings/{id:[0-9]+}/points/{point_num:[0-9]+}", drawingPointGettingHandler).Methods(http.MethodGet)
-	router.HandleFunc("/drawings/{id:[0-9]+}/points/{point_num:[0-9]+}", drawingPointUpdatingHandler(st)).Methods(http.MethodPut)
-	router.HandleFunc("/drawings/{id:[0-9]+}/points/{point_num:[0-9]+}", drawingPointDeletingHandler(st)).Methods(http.MethodDelete)
+	path = fmt.Sprintf("/drawings/{%s:[0-9]+}/points/{%s:[0-9]+}", pathVarDrawingID, pathVarPointNumber)
+	router.HandleFunc(path, drawingPointGettingHandler).Methods(http.MethodGet)
+	router.HandleFunc(path, getDrawingPointUpdatingHandler(st)).Methods(http.MethodPut)
+	router.HandleFunc(path, getDrawingPointDeletingHandler(st)).Methods(http.MethodDelete)
 }
 
 // ===========
@@ -92,7 +114,7 @@ func authorizationMiddleware(next http.Handler) http.Handler {
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
-			ctx := context.WithValue(req.Context(), userIDMiddlewareKey, userClaims.ID)
+			ctx := context.WithValue(req.Context(), ctxKeyUser, userClaims.UserOpen)
 			req = req.WithContext(ctx)
 			if ok := onlyAdminURLReg.MatchString(req.URL.Path); ok && userClaims.Permission != AdminPermission {
 				http.Error(w, "Forbidden", http.StatusForbidden)
@@ -106,38 +128,53 @@ func authorizationMiddleware(next http.Handler) http.Handler {
 func gettingDrawingMiddleware(getter DrawingGetter) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			var (
-				drawingPathReg = regexp.MustCompile(`/drawings/[0-9]+.*`)
-			)
+			var drawingPathReg = regexp.MustCompile(`/drawings/[0-9]+.*`)
+
 			if drawingPathReg.MatchString(req.URL.Path) {
-				userID, ok := req.Context().Value(userIDMiddlewareKey).(uint)
-				if !ok {
-					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-					log.Print(ErrCouldNotReadUserIDFromCtx)
+				var err error
+				user, drawingID, drawing := new(UserOpen), uint(0), new(Drawing)
+				if err := readCtxValue(req.Context(), ctxKeyUser, user); writeError(w, err) {
 					return
 				}
-				drawingID, err := strconv.ParseUint(mux.Vars(req)["id"], 10, 64)
-				if err != nil {
-					http.Error(w, "Bad Request", http.StatusBadRequest)
-					log.Print(err)
+				if err := parsePathValue(mux.Vars(req), pathVarDrawingID, &drawingID); writeError(w, err) {
 					return
 				}
 
-				drawing, err := getter.GetDrawingOfUser(userID, uint(drawingID))
-				if errors.Is(err, ErrDrawingNotFound) {
-					http.Error(w, "Not Found", http.StatusNotFound)
-					return
-				} else if err != nil {
-					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-					log.Print(err)
+				drawing, err = getter.GetDrawingOfUser(user.ID, drawingID)
+				if writeError(w, err) {
 					return
 				}
-				ctx := context.WithValue(req.Context(), drawingMiddlewareKey, drawing)
+				ctx := context.WithValue(req.Context(), ctxKeyDrawing, drawing)
 				req = req.WithContext(ctx)
 			}
 			next.ServeHTTP(w, req)
 		})
 	}
+}
+
+func gettingPointMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		var pointPathReg = regexp.MustCompile(`/drawings/[0-9]+/points/[0-9]+`)
+
+		if pointPathReg.MatchString(req.URL.Path) {
+			pointIndex, drawing := 0, new(Drawing)
+			if err := readCtxValue(req.Context(), ctxKeyDrawing, drawing); writeError(w, err) {
+				return
+			}
+			if err := parsePathValue(mux.Vars(req), pathVarPointNumber, &pointIndex); writeError(w, err) {
+				return
+			}
+			if pointIndex > drawing.Len() || pointIndex < 1 {
+				_ = writeError(w, ErrPointNotFound)
+				return
+			}
+			pointIndex--
+			ctx := context.WithValue(req.Context(), ctxKeyPointIndex, pointIndex)
+			ctx = context.WithValue(ctx, ctxKeyPoint, drawing.Points[pointIndex])
+			req = req.WithContext(ctx)
+		}
+		next.ServeHTTP(w, req)
+	})
 }
 
 // ======
@@ -147,7 +184,7 @@ func gettingDrawingMiddleware(getter DrawingGetter) mux.MiddlewareFunc {
 func loginHandler(getter UserGetter) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		var userAuth User
-		if !unmarshalRequestBody(w, req, &userAuth) {
+		if err := unmarshalReaderContent(req.Body, &userAuth); writeError(w, err) {
 			return
 		}
 		if userAuth.Login == "" || userAuth.Password == "" {
@@ -155,19 +192,12 @@ func loginHandler(getter UserGetter) http.HandlerFunc {
 			return
 		}
 		user, err := getter.GetUser(userAuth.Login, userAuth.Password)
-		if errors.Is(err, ErrUserNotFound) {
-			http.Error(w, "User not found!", http.StatusNotFound)
-			return
-		} else if err != nil {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			log.Print(err)
+		if writeError(w, err) {
 			return
 		}
 
 		token, err := createUserJWTToken(user.UserOpen, SigningSecret, time.Hour*24)
-		if err != nil {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			log.Print(err)
+		if writeError(w, err) {
 			return
 		}
 
@@ -180,26 +210,20 @@ func loginHandler(getter UserGetter) http.HandlerFunc {
 // /users
 // ======
 
-func usersListHandler(getter UsersListGetter) http.HandlerFunc {
+func getUsersListHandler(getter UsersListGetter) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		amount, err := getter.UsersAmount()
-		if err != nil {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			log.Print(err)
+		if writeError(w, err) {
 			return
 		}
 		stat, err := readListStatData(req.URL.Query(), amount)
-		if err != nil {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			log.Print(err)
+		if writeError(w, err) {
 			return
 		}
 
 		respData := UsersListResponseData{ListStatData: *stat}
 		respData.Users, err = getter.GetUsersList(respData.Page, respData.PageLimit)
-		if err != nil {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			log.Print(err)
+		if writeError(w, err) {
 			return
 		}
 
@@ -207,27 +231,20 @@ func usersListHandler(getter UsersListGetter) http.HandlerFunc {
 	}
 }
 
-func userCreatingHandler(creator UserCreator) http.HandlerFunc {
+func getUserCreatingHandler(creator UserCreator) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		var user User
-		if !unmarshalRequestBody(w, req, &user) {
+		if err := unmarshalReaderContent(req.Body, &user); writeError(w, err) {
 			return
 		}
 		if user.Login == "" || user.Password == "" {
-			http.Error(w, "Bad Request: Login or Password weren't specified", http.StatusBadRequest)
+			_ = writeError(w, ErrBadLoginOrPassword)
 			return
 		}
 		if user.Permission == 0 {
 			user.Permission = UserPermission
 		}
-		if err := creator.CreateUsers(&user); err != nil {
-			if errors.Is(err, ErrUserAlreadyExist) {
-				http.Error(w, "User already exists", http.StatusBadRequest)
-				return
-			} else {
-				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-				log.Print(err)
-			}
+		if err := creator.CreateUsers(&user); writeError(w, err) {
 			return
 		}
 		w.Header().Add("Location", fmt.Sprintf("/users/%d", user.ID))
@@ -239,21 +256,15 @@ func userCreatingHandler(creator UserCreator) http.HandlerFunc {
 // /users/{id}
 // ===========
 
-func userGettingHandler(getter UserGetter) http.HandlerFunc {
+func getUserGettingHandler(getter UserGetter) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
-		userID, err := strconv.ParseUint(mux.Vars(req)["id"], 10, 64)
-		if err != nil {
-			http.Error(w, "Bad Request Error: Incorrect user ID", http.StatusBadRequest)
+		userID := uint(0)
+		if err := parsePathValue(mux.Vars(req), pathVarUserID, &userID); writeError(w, err) {
 			return
 		}
 
-		user, err := getter.GetUserByID(uint(userID))
-		if errors.Is(err, ErrUserNotFound) {
-			http.Error(w, "Not Found", http.StatusNotFound)
-			return
-		} else if err != nil {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			log.Print(err)
+		user, err := getter.GetUserByID(userID)
+		if writeError(w, err) {
 			return
 		}
 
@@ -261,47 +272,33 @@ func userGettingHandler(getter UserGetter) http.HandlerFunc {
 	}
 }
 
-func userRemovingHandler(remover UserRemover) http.HandlerFunc {
+func getUserRemovingHandler(remover UserRemover) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
-		userID, err := strconv.ParseUint(mux.Vars(req)["id"], 10, 64)
-		if err != nil {
-			http.Error(w, "Bad Request Error: Incorrect user ID", http.StatusBadRequest)
+		userID := uint(0)
+		if err := parsePathValue(mux.Vars(req), pathVarUserID, &userID); writeError(w, err) {
 			return
 		}
 
-		err = remover.RemoveUser(uint(userID))
-		if errors.Is(err, ErrUserNotFound) {
-			http.Error(w, "Not Found", http.StatusNotFound)
-			return
-		} else if err != nil {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			log.Print(err)
+		if err := remover.RemoveUser(userID); writeError(w, err) {
 			return
 		}
 	}
 }
 
-func userUpdatingHandler(updater UserUpdater) http.HandlerFunc {
+func getUserUpdatingHandler(updater UserUpdater) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
-		userID, err := strconv.ParseUint(mux.Vars(req)["id"], 10, 64)
-		if err != nil {
-			http.Error(w, "Bad Request Error: Incorrect user ID", http.StatusBadRequest)
+		userID := uint(0)
+		if err := parsePathValue(mux.Vars(req), pathVarUserID, &userID); writeError(w, err) {
 			return
 		}
 
 		var user User
-		if !unmarshalRequestBody(w, req, &user) {
+		if err := unmarshalReaderContent(req.Body, &user); writeError(w, err) {
 			return
 		}
 
-		user.ID = uint(userID)
-		err = updater.UpdateUser(&user)
-		if errors.Is(err, ErrUserNotFound) {
-			http.Error(w, "Not Found", http.StatusNotFound)
-			return
-		} else if err != nil {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			log.Print(err)
+		user.ID = userID
+		if err := updater.UpdateUser(&user); writeError(w, err) {
 			return
 		}
 	}
@@ -311,34 +308,26 @@ func userUpdatingHandler(updater UserUpdater) http.HandlerFunc {
 // /drawings
 // =========
 
-func drawingsListGettingHandler(getter DrawingsListGetter) http.HandlerFunc {
+func getDrawingsListGettingHandler(getter DrawingsListGetter) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
-		userID, ok := req.Context().Value(userIDMiddlewareKey).(uint)
-		if !ok {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			log.Print(ErrCouldNotReadUserIDFromCtx)
+		user := new(UserOpen)
+		if err := readCtxValue(req.Context(), ctxKeyUser, user); writeError(w, err) {
 			return
 		}
 
-		amount, err := getter.DrawingsAmount(userID)
-		if err != nil {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			log.Print(err)
+		amount, err := getter.DrawingsAmount(user.ID)
+		if writeError(w, err) {
 			return
 		}
 		stat, err := readListStatData(req.URL.Query(), amount)
-		if err != nil {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			log.Print(err)
+		if writeError(w, err) {
 			return
 		}
 
 		respData := DrawingsListResponseData{Drawings: make([]*DrawingOpen, 0), ListStatData: *stat}
 		if amount > 0 {
-			respData.Drawings, err = getter.GetDrawingsList(userID, respData.Page, respData.PageLimit)
-			if err != nil {
-				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-				log.Print(err)
+			respData.Drawings, err = getter.GetDrawingsList(user.ID, respData.Page, respData.PageLimit)
+			if writeError(w, err) {
 				return
 			}
 		}
@@ -347,17 +336,15 @@ func drawingsListGettingHandler(getter DrawingsListGetter) http.HandlerFunc {
 	}
 }
 
-func drawingCreatingHandler(creator DrawingCreator) http.HandlerFunc {
+func getDrawingCreatingHandler(creator DrawingCreator) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
-		userID, ok := req.Context().Value(userIDMiddlewareKey).(uint)
-		if !ok {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			log.Print(ErrCouldNotReadUserIDFromCtx)
+		user := new(UserOpen)
+		if err := readCtxValue(req.Context(), ctxKeyUser, user); writeError(w, err) {
 			return
 		}
 
 		var requestData DrawingPostPutRequestData
-		if !unmarshalRequestBody(w, req, &requestData) {
+		if err := unmarshalReaderContent(req.Body, &requestData); writeError(w, err) {
 			return
 		}
 		if requestData.Name == "" {
@@ -367,12 +354,11 @@ func drawingCreatingHandler(creator DrawingCreator) http.HandlerFunc {
 		drawing := Drawing{DrawingOpen: requestData.DrawingOpen, GGDrawing: *raster.NewEmptyGGDrawing()}
 		drawing.Measures = requestData.Measures.ToFigureMeasures(drawing.Measures)
 
-		if err := addRequestPointsToDrawing(&drawing, requestData.Points...); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		if err := addRequestPointsToDrawing(&drawing, requestData.Points...); writeError(w, err) {
 			return
 		}
 
-		if err := creator.CreateDrawings(userID, &drawing); err != nil {
+		if err := creator.CreateDrawings(user.ID, &drawing); err != nil {
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			log.Print(err)
 			return
@@ -388,10 +374,8 @@ func drawingCreatingHandler(creator DrawingCreator) http.HandlerFunc {
 // =============
 
 func drawingGettingHandler(w http.ResponseWriter, req *http.Request) {
-	drawing, ok := req.Context().Value(drawingMiddlewareKey).(*Drawing)
-	if !ok {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		log.Print(ErrCouldNotReadDrawingFromCtx)
+	drawing := new(Drawing)
+	if err := readCtxValue(req.Context(), ctxKeyDrawing, drawing); writeError(w, err) {
 		return
 	}
 
@@ -411,26 +395,17 @@ func drawingGettingHandler(w http.ResponseWriter, req *http.Request) {
 	marshalAndWrite(w, &respData)
 }
 
-func drawingDeletingHandler(remover DrawingRemover) http.HandlerFunc {
+func getDrawingDeletingHandler(remover DrawingRemover) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
-		userID, ok := req.Context().Value(userIDMiddlewareKey).(uint)
-		if !ok {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			log.Print(ErrCouldNotReadUserIDFromCtx)
+		user, drawingID := new(UserOpen), uint(0)
+		if err := readCtxValue(req.Context(), ctxKeyUser, user); writeError(w, err) {
 			return
 		}
-		drawingID, err := strconv.ParseUint(mux.Vars(req)["id"], 10, 64)
-		if err != nil {
-			http.Error(w, "Bad Request", http.StatusBadRequest)
+		if err := parsePathValue(mux.Vars(req), pathVarDrawingID, &drawingID); writeError(w, err) {
 			return
 		}
 
-		if err := remover.RemoveDrawingOfUser(userID, uint(drawingID)); errors.Is(err, ErrDrawingNotFound) {
-			http.Error(w, "Not Found", http.StatusNotFound)
-			return
-		} else if err != nil {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			log.Print(err)
+		if err := remover.RemoveDrawingOfUser(user.ID, drawingID); writeError(w, err) {
 			return
 		}
 	}
@@ -441,35 +416,24 @@ func drawingDeletingHandler(remover DrawingRemover) http.HandlerFunc {
 // ====================
 
 func drawingImageHandler(w http.ResponseWriter, req *http.Request) {
-	drawing, ok := req.Context().Value(drawingMiddlewareKey).(*Drawing)
-	if !ok {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		log.Print(ErrCouldNotReadDrawingFromCtx)
+	drawing := new(Drawing)
+	if err := readCtxValue(req.Context(), ctxKeyDrawing, drawing); writeError(w, err) {
 		return
 	}
 
 	var err error
 	drawDescription := false
-	if info, ok := req.URL.Query()["info"]; ok && len(info) != 0 {
-		drawDescription, err = strconv.ParseBool(info[0])
-		if err != nil {
-			http.Error(w, "Bad Request: Incorrect 'info' parameter", http.StatusBadRequest)
-			return
-		}
+	if err := parseURLParamValue(req.URL.Query(), urlParamInfo, &drawDescription); err != nil && !errors.Is(err, ErrNotFound) && writeError(w, err) {
+		return
 	}
 
 	image, err := drawing.Draw(drawDescription)
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		log.Print(err)
+	if writeError(w, err) {
 		return
 	}
 
 	w.Header().Set("Content-Type", "image/png")
-	err = png.Encode(w, image)
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		log.Print(err)
+	if err = png.Encode(w, image); writeError(w, err) {
 		return
 	}
 }
@@ -478,16 +442,14 @@ func drawingImageHandler(w http.ResponseWriter, req *http.Request) {
 // /drawings/{id}/points
 // =====================
 
-func drawingPointsHandler(w http.ResponseWriter, req *http.Request) {
-	drawing, ok := req.Context().Value(drawingMiddlewareKey).(*Drawing)
-	if !ok {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		log.Print(ErrCouldNotReadDrawingFromCtx)
+func drawingPointsGettingHandler(w http.ResponseWriter, req *http.Request) {
+	drawing := new(Drawing)
+	if err := readCtxValue(req.Context(), ctxKeyDrawing, drawing); writeError(w, err) {
 		return
 	}
 
-	measure, precision, ok := readMeasureAndPrecisionFromURL(w, req, drawing.Measures.Length, 2)
-	if !ok {
+	precision, measure := 2, drawing.Measures.Length
+	if err := readLengthMeasureAndPrecision(req.URL.Query(), &measure, &precision); writeError(w, err) {
 		return
 	}
 	respData := DrawingPointsGettingResponseData{
@@ -499,25 +461,22 @@ func drawingPointsHandler(w http.ResponseWriter, req *http.Request) {
 	marshalAndWrite(w, &respData)
 }
 
-func drawingPointsAddingHandler(updater DrawingUpdater) http.HandlerFunc {
+func getDrawingPointsAddingHandler(updater DrawingUpdater) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
-		drawing, ok := req.Context().Value(drawingMiddlewareKey).(*Drawing)
-		if !ok {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			log.Print(ErrCouldNotReadDrawingFromCtx)
+		drawing := new(Drawing)
+		if err := readCtxValue(req.Context(), ctxKeyDrawing, drawing); writeError(w, err) {
 			return
 		}
 
 		var reqData PointsCalculatingWithMeasures
-		if !unmarshalRequestBody(w, req, &reqData) {
+		if err := unmarshalReaderContent(req.Body, &reqData); writeError(w, err) {
 			return
 		}
 
 		dmCopy := drawing.Measures
 		drawing.Measures = reqData.Measures.ToFigureMeasures(drawing.Measures)
 
-		if err := addRequestPointsToDrawing(drawing, reqData.Points...); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		if err := addRequestPointsToDrawing(drawing, reqData.Points...); writeError(w, err) {
 			return
 		}
 
@@ -528,10 +487,8 @@ func drawingPointsAddingHandler(updater DrawingUpdater) http.HandlerFunc {
 		}
 
 		drawing.Measures = dmCopy
-		err := updater.UpdateDrawing(drawing)
-		if err != nil {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			log.Print(err)
+
+		if err := updater.UpdateDrawing(drawing); writeError(w, err) {
 			return
 		}
 
@@ -544,27 +501,19 @@ func drawingPointsAddingHandler(updater DrawingUpdater) http.HandlerFunc {
 // =========================
 
 func drawingPointGettingHandler(w http.ResponseWriter, req *http.Request) {
-	drawing, ok := req.Context().Value(drawingMiddlewareKey).(*Drawing)
-	if !ok {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		log.Print(ErrCouldNotReadDrawingFromCtx)
+	pointIndex, drawing := 0, new(Drawing)
+	if err := readCtxValue(req.Context(), ctxKeyDrawing, drawing); writeError(w, err) {
 		return
 	}
-	pointNumber, err := strconv.ParseUint(mux.Vars(req)["point_num"], 10, 64)
-	if err != nil {
-		http.Error(w, "Bad Request", http.StatusBadRequest)
-		return
-	}
-	if uint(drawing.Len()) <= uint(pointNumber) {
-		http.Error(w, "Not found", http.StatusNotFound)
+	if err := readCtxValue(req.Context(), ctxKeyPointIndex, &pointIndex); writeError(w, err) {
 		return
 	}
 
-	measure, precision, ok := readMeasureAndPrecisionFromURL(w, req, drawing.Measures.Length, 2)
-	if !ok {
+	precision, measure := 2, drawing.Measures.Length
+	if err := readLengthMeasureAndPrecision(req.URL.Query(), &measure, &precision); writeError(w, err) {
 		return
 	}
-	point := drawing.Points[pointNumber]
+	point := drawing.Points[pointIndex]
 	marshalAndWrite(w, PointWithMeasure{
 		X:       value.ConvertFromOneRound(measure, point.X, precision),
 		Y:       value.ConvertFromOneRound(measure, point.Y, precision),
@@ -572,70 +521,53 @@ func drawingPointGettingHandler(w http.ResponseWriter, req *http.Request) {
 	})
 }
 
-func drawingPointDeletingHandler(updater DrawingUpdater) http.HandlerFunc {
+func getDrawingPointDeletingHandler(updater DrawingUpdater) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
-		drawing, ok := req.Context().Value(drawingMiddlewareKey).(*Drawing)
-		if !ok {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			log.Print(ErrCouldNotReadDrawingFromCtx)
+		pointIndex, drawing := 0, new(Drawing)
+		if err := readCtxValue(req.Context(), ctxKeyDrawing, drawing); writeError(w, err) {
 			return
 		}
-		pointNumber, err := strconv.ParseUint(mux.Vars(req)["point_num"], 10, 64)
-		if err != nil {
-			http.Error(w, "Bad Request", http.StatusBadRequest)
+		if err := readCtxValue(req.Context(), ctxKeyPointIndex, &pointIndex); writeError(w, err) {
 			return
 		}
 
-		drawing.Points = append(drawing.Points[:pointNumber], drawing.Points[pointNumber+1:]...)
+		drawing.Points = append(drawing.Points[:pointIndex], drawing.Points[pointIndex+1:]...)
 
-		if err := updater.UpdateDrawing(drawing); err != nil {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			log.Print(err)
+		if err := updater.UpdateDrawing(drawing); writeError(w, err) {
 			return
 		}
 	}
 }
 
-func drawingPointUpdatingHandler(updater DrawingUpdater) http.HandlerFunc {
+func getDrawingPointUpdatingHandler(updater DrawingUpdater) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
-		drawing, ok := req.Context().Value(drawingMiddlewareKey).(*Drawing)
-		if !ok {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			log.Print(ErrCouldNotReadDrawingFromCtx)
+		pointIndex, drawing := 0, new(Drawing)
+		if err := readCtxValue(req.Context(), ctxKeyDrawing, drawing); writeError(w, err) {
 			return
 		}
-		pointNumber, err := strconv.ParseUint(mux.Vars(req)["point_num"], 10, 64)
-		if err != nil {
-			http.Error(w, "Bad Request", http.StatusBadRequest)
-			return
-		}
-		if uint(drawing.Len()) <= uint(pointNumber) {
-			http.Error(w, "Not found", http.StatusNotFound)
+		if err := readCtxValue(req.Context(), ctxKeyPointIndex, &pointIndex); writeError(w, err) {
 			return
 		}
 
 		var pointWithMeasure PointCalculatingWithMeasures
-		if !unmarshalRequestBody(w, req, &pointWithMeasure) {
+		if err := unmarshalReaderContent(req.Body, &pointWithMeasure); writeError(w, err) {
 			return
 		}
 
-		endPoints := drawing.Points[pointNumber+1:]
-		drawing.Points = drawing.Points[:pointNumber]
+		endPoints := drawing.Points[pointIndex+1:]
+		drawing.Points = drawing.Points[:pointIndex]
 
 		drawingMeasures := drawing.Measures
 		drawing.Measures = pointWithMeasure.Measures.ToFigureMeasures(drawing.Measures)
 
-		if err := addRequestPointsToDrawing(drawing, &pointWithMeasure.PointCalculating); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		if err := addRequestPointsToDrawing(drawing, &pointWithMeasure.PointCalculating); writeError(w, err) {
 			return
 		}
 
 		drawing.Measures = drawingMeasures
 		drawing.Points = append(drawing.Points, endPoints...)
 
-		if err := updater.UpdateDrawing(drawing); err != nil {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			log.Print(err)
+		if err := updater.UpdateDrawing(drawing); writeError(w, err) {
 			return
 		}
 	}
