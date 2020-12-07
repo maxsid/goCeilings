@@ -45,10 +45,12 @@ func NewEmptyGGDrawing() *GGDrawing {
 	return d
 }
 
-func NewGGDrawingWithPoints(points ...*Point) *GGDrawing {
+func NewGGDrawingWithPoints(points ...*Point) (*GGDrawing, error) {
 	d := NewEmptyGGDrawing()
-	d.AddPoints(points...)
-	return d
+	if err := d.AddPoints(points...); err != nil {
+		return nil, err
+	}
+	return d, nil
 }
 
 func NewGGDrawing() *GGDrawing {
@@ -240,9 +242,20 @@ func (d *GGDrawing) setFontSize(ggCtx *gg.Context, size float64) error {
 	return nil
 }
 
-func (d *GGDrawing) AddPointByMeasure(x, y float64) {
+func (d *GGDrawing) AddPoints(points ...*Point) error {
+	for _, p := range points {
+		if p.Calculator == nil {
+			p.X, p.Y = ConvertToOne(d.Measures.Length, p.X), ConvertToOne(d.Measures.Length, p.Y)
+		} else {
+			p.Calculator.ConvertToOne(d.Measures)
+		}
+	}
+	return d.Polygon.AddPoints(points...)
+}
+
+func (d *GGDrawing) AddPoint(x, y float64) {
 	x, y = ConvertToOne(d.Measures.Length, x), ConvertToOne(d.Measures.Length, y)
-	d.AddPoint(x, y)
+	d.Polygon.AddPoint(x, y)
 }
 
 func (d *GGDrawing) AddPointByDirection(distance float64, direction float64) error {
@@ -255,6 +268,15 @@ func (d *GGDrawing) AddPointByAngle(distance float64, angle float64) error {
 	distance = ConvertToOne(d.Measures.Length, distance)
 	angle = ConvertToOne(d.Measures.Angle, angle)
 	return d.Polygon.AddPointByAngle(distance, angle)
+}
+
+func (d *GGDrawing) SetPoint(i int, point *Point) error {
+	if point.Calculator == nil {
+		point.X, point.Y = ConvertToOne(d.Measures.Length, point.X), ConvertToOne(d.Measures.Length, point.Y)
+	} else {
+		point.Calculator.ConvertToOne(d.Measures)
+	}
+	return d.Polygon.SetPoint(i, point)
 }
 
 func (d *GGDrawing) Area() float64 {

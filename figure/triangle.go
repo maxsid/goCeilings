@@ -16,8 +16,7 @@ func (t *Triangle) AddPoints(points ...*Point) error {
 	if t.Len()+len(points) > 3 {
 		return ErrTooMuchPoints
 	}
-	t.Polygon.AddPoints(points...)
-	return nil
+	return t.Polygon.AddPoints(points...)
 }
 
 func (t *Triangle) AddPointByDirection(d float64, a float64) error {

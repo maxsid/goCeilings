@@ -7,21 +7,21 @@ import (
 )
 
 var example1 = []*Point{
-	{0, 0},
-	{0, 125},
-	{27, 125},
-	{27.01, 171},
-	{222.01, 169.98},
-	{225, 0}}
+	NewPoint(0, 0),
+	NewPoint(0, 125),
+	NewPoint(27, 125),
+	NewPoint(27.01, 171),
+	NewPoint(222.01, 169.98),
+	NewPoint(225, 0)}
 var example2 = []*Point{
-	{0, 0},
-	{0, 155},
-	{72.5, 155},
-	{72.5, 167.5},
-	{12.5, 167.51},
-	{12.53, 597.51},
-	{342.52, 599.99},
-	{345, 0},
+	NewPoint(0, 0),
+	NewPoint(0, 155),
+	NewPoint(72.5, 155),
+	NewPoint(72.5, 167.5),
+	NewPoint(12.5, 167.51),
+	NewPoint(12.53, 597.51),
+	NewPoint(342.52, 599.99),
+	NewPoint(345, 0),
 }
 
 func TestPolygon_Len(t *testing.T) {
@@ -120,7 +120,7 @@ func TestPolygon_Area(t *testing.T) {
 		},
 		{
 			name:   "Too small points",
-			fields: fields{[]*Point{{0, 0}, {1, 1}}},
+			fields: fields{[]*Point{NewPoint(0, 0), NewPoint(1, 1)}},
 			want:   0,
 		},
 	}
@@ -157,7 +157,7 @@ func TestPolygon_Perimeter(t *testing.T) {
 		},
 		{
 			name:   "Too small points",
-			fields: fields{[]*Point{{0, 0}}},
+			fields: fields{[]*Point{NewPoint(0, 0)}},
 			want:   0,
 		},
 	}
@@ -194,7 +194,7 @@ func TestPolygon_Width(t *testing.T) {
 		},
 		{
 			name:   "Too small points",
-			fields: fields{[]*Point{{0, 0}}},
+			fields: fields{[]*Point{NewPoint(0, 0)}},
 			want:   0,
 		},
 	}
@@ -231,7 +231,7 @@ func TestPolygon_Height(t *testing.T) {
 		},
 		{
 			name:   "Too small points",
-			fields: fields{[]*Point{{0, 0}}},
+			fields: fields{[]*Point{NewPoint(0, 0)}},
 			want:   0,
 		},
 	}
@@ -269,12 +269,12 @@ func TestPolygon_Rotation(t *testing.T) {
 				a: Convert(Degree, Radian, 45),
 			},
 			wantS: []*Point{
-				{0, 0},
-				{-88.388, 88.388},
-				{-69.289, 107.487},
-				{-101.816, 140.014},
-				{36.791, 277.179},
-				{159.099, 159.099},
+				{X: 0, Y: 0},
+				{X: -88.388, Y: 88.388},
+				{X: -69.289, Y: 107.487},
+				{X: -101.816, Y: 140.014},
+				{X: 36.791, Y: 277.179},
+				{X: 159.099, Y: 159.099},
 			},
 		},
 	}
@@ -289,10 +289,8 @@ func TestPolygon_Rotation(t *testing.T) {
 			if ws, s := pol.Area(), wPol.Area(); !compareFloats(ws, s, 0.3) {
 				t.Errorf("Incorrect Area. Got %f, want %f", s, ws)
 			}
-			for i := 0; i < pol.Len(); i++ {
-				if !comparePoints(wPol.Points[i], pol.Points[i], 0.1) {
-					t.Errorf("Incorrect point %d. Got %v, want %v", i, pol.Points[i], wPol.Points[i])
-				}
+			if err := comparePointsSlices(wPol.Points, pol.Points, 0.1); err != nil {
+				t.Error(err)
 			}
 		})
 	}
@@ -369,21 +367,21 @@ func TestPolygon_AddPointByDirection(t *testing.T) {
 		},
 		{
 			name:   "One point",
-			fields: fields{[]*Point{{0, 0}}},
+			fields: fields{[]*Point{{X: 0, Y: 0}}},
 			args:   args{125, 90},
-			want:   []*Point{{0, 0}, {0, 125}},
+			want:   []*Point{{X: 0, Y: 0}, {X: 0, Y: 125}},
 		},
 		{
 			name:   "Two point",
-			fields: fields{[]*Point{{0, 0}, {0, 125}}},
+			fields: fields{[]*Point{{X: 0, Y: 0}, {X: 0, Y: 125}}},
 			args:   args{27, 0},
-			want:   []*Point{{0, 0}, {0, 125}, {27, 125}},
+			want:   []*Point{{X: 0, Y: 0}, {X: 0, Y: 125}, {X: 27, Y: 125}},
 		},
 		{
 			name:   "Three points",
-			fields: fields{[]*Point{{0, 0}, {0, 125}, {27, 125}}},
+			fields: fields{[]*Point{{X: 0, Y: 0}, {X: 0, Y: 125}, {X: 27, Y: 125}}},
 			args:   args{46, 90},
-			want:   []*Point{{0, 0}, {0, 125}, {27, 125}, {27, 171}},
+			want:   []*Point{{X: 0, Y: 0}, {X: 0, Y: 125}, {X: 27, Y: 125}, {X: 27, Y: 171}},
 		},
 	}
 	for _, tt := range tests {
@@ -429,21 +427,21 @@ func TestPolygon_AddPointByAngle(t *testing.T) {
 		},
 		{
 			name:    "1 point error",
-			fields:  fields{[]*Point{{0, 0}}},
+			fields:  fields{[]*Point{{X: 0, Y: 0}}},
 			args:    args{125, 90},
 			wantErr: true,
 		},
 		{
 			name:   "Two point",
-			fields: fields{[]*Point{{0, 0}, {0, 125}}},
+			fields: fields{[]*Point{{X: 0, Y: 0}, {X: 0, Y: 125}}},
 			args:   args{27, 90},
-			want:   []*Point{{0, 0}, {0, 125}, {27, 125}},
+			want:   []*Point{{X: 0, Y: 0}, {X: 0, Y: 125}, {X: 27, Y: 125}},
 		},
 		{
 			name:   "Three points",
-			fields: fields{[]*Point{{0, 0}, {0, 125}, {27, 125}}},
+			fields: fields{[]*Point{{X: 0, Y: 0}, {X: 0, Y: 125}, {X: 27, Y: 125}}},
 			args:   args{46, 270},
-			want:   []*Point{{0, 0}, {0, 125}, {27, 125}, {27, 171}},
+			want:   []*Point{{X: 0, Y: 0}, {X: 0, Y: 125}, {X: 27, Y: 125}, {X: 27, Y: 171}},
 		},
 	}
 	for _, tt := range tests {
@@ -468,7 +466,316 @@ func TestPolygon_AddPointByAngle(t *testing.T) {
 func notPointerPoints(points []*Point) []Point {
 	out := make([]Point, len(points))
 	for i, p := range points {
-		out[i] = *p.GetRoundedPoint(2)
+		out[i] = *NewPoint(Round(p.X, 2), Round(p.Y, 2))
 	}
 	return out
+}
+
+func TestPolygon_calculatePoints(t *testing.T) {
+	type fields struct {
+		Points []*Point
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		want    []*Point
+		wantErr bool
+	}{
+		{
+			name: "Combination",
+			fields: fields{Points: []*Point{
+				{X: 0, Y: 0},
+				{Calculator: &DirectionCalculator{Direction: ConvertToOne(Degree, 90), Distance: 125}},
+				{Calculator: &AngleCalculator{Angle: ConvertToOne(Degree, 90), Distance: 27}},
+				{Calculator: &AngleCalculator{Angle: ConvertToOne(Degree, 270), Distance: 46}},
+				{Calculator: &AngleCalculator{Angle: ConvertToOne(Degree, 90), Distance: 195}},
+				{Calculator: &AngleCalculator{Angle: ConvertToOne(Degree, 90), Distance: 170}},
+			}},
+			want: []*Point{
+				{X: 0, Y: 0},
+				{X: 0, Y: 125},
+				{X: 27, Y: 125},
+				{X: 27, Y: 171},
+				{X: 222, Y: 171},
+				{X: 222, Y: 1},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pol := &Polygon{
+				Points: tt.fields.Points,
+			}
+			if err := pol.CalculatePoints(); (err != nil) != tt.wantErr {
+				t.Errorf("CalculatePoints() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !tt.wantErr {
+				if err := comparePointsSlices(pol.Points, tt.want, 0.01); err != nil {
+					t.Error(err)
+				}
+			}
+		})
+	}
+}
+
+func TestPolygon_calculatePoint(t *testing.T) {
+	type fields struct {
+		Points []*Point
+	}
+	type args struct {
+		index int
+	}
+	tests := []struct {
+		name      string
+		fields    fields
+		args      args
+		want      []*Point // checks only coordinates
+		wantErr   bool
+		wantPanic bool
+	}{
+		{
+			name: "Incorrect index",
+			fields: fields{Points: []*Point{
+				{X: 0, Y: 0},
+				{X: 100, Y: 200},
+			}},
+			args:      args{index: -1},
+			wantPanic: true,
+		},
+		{
+			name: "Doesn't have calculator",
+			fields: fields{Points: []*Point{
+				{X: 0, Y: 0},
+				{X: 100, Y: 200},
+			}},
+			args:    args{index: 0},
+			wantErr: true,
+		},
+		{
+			name: "Square",
+			fields: fields{Points: []*Point{
+				{X: 0, Y: 0},
+				{Calculator: &DirectionCalculator{ConvertToOne(Degree, 90), 120}},
+				{Calculator: &DirectionCalculator{0, 40}},
+				{Calculator: &DirectionCalculator{ConvertToOne(Degree, 270), 120}},
+			}},
+			args: args{index: 1},
+			want: []*Point{
+				{X: 0, Y: 0},
+				{X: 0, Y: 120},
+				{X: 0, Y: 0},
+				{X: 0, Y: 0},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			defer func() {
+				if err := recover(); err != nil && !tt.wantPanic {
+					t.Errorf("Caught panic: %v", err)
+				} else if err == nil && tt.wantPanic {
+					t.Error("wantPanic = true, but panic is not caught")
+				}
+			}()
+			pol := &Polygon{
+				Points: tt.fields.Points,
+			}
+			if err := pol.calculatePoint(tt.args.index); (err != nil) != tt.wantErr {
+				t.Errorf("calculatePoint() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !tt.wantErr {
+				pol.RoundAllPoints(0)
+				if err := comparePointsSlices(tt.want, pol.Points, 0.01); err != nil {
+					t.Error(err)
+				}
+			}
+		})
+	}
+}
+
+func TestPolygon_RoundAllPoints(t *testing.T) {
+	type fields struct {
+		Points []*Point
+	}
+	type args struct {
+		round int
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		args   args
+		want   []*Point
+	}{
+		{
+			name: "Round",
+			fields: fields{Points: []*Point{
+				{X: 0, Y: 0},
+				{X: 12.523, Y: 43.12},
+				{X: 124.5356, Y: 43.1212},
+				{X: 1212.000000000012, Y: 43},
+			}},
+			args: args{round: 2},
+			want: []*Point{
+				{X: 0, Y: 0},
+				{X: 12.52, Y: 43.12},
+				{X: 124.54, Y: 43.12},
+				{X: 1212, Y: 43},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pol := &Polygon{
+				Points: tt.fields.Points,
+			}
+			pol.RoundAllPoints(tt.args.round)
+			if err := comparePointsSlices(pol.Points, tt.want, 0); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+}
+
+func TestPolygon_RoundCalculatedPoints(t *testing.T) {
+	type fields struct {
+		Points []*Point
+	}
+	type args struct {
+		round int
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		args   args
+		want   []*Point
+	}{
+		{
+			name: "Round",
+			fields: fields{Points: []*Point{
+				{X: 0, Y: 0},
+				{X: 12.523, Y: 43.12},
+				{X: 124.5356, Y: 43.1212, Calculator: &DirectionCalculator{}},
+				{X: 124.5356, Y: 43.1212},
+				{X: 1212.000000000012, Y: 43, Calculator: &DirectionCalculator{}},
+				{X: 1212.000000000012, Y: 43},
+			}},
+			args: args{round: 2},
+			want: []*Point{
+				{X: 0, Y: 0},
+				{X: 12.523, Y: 43.12},
+				{X: 124.54, Y: 43.12},
+				{X: 124.5356, Y: 43.1212},
+				{X: 1212, Y: 43},
+				{X: 1212.000000000012, Y: 43},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pol := &Polygon{
+				Points: tt.fields.Points,
+			}
+			pol.RoundCalculatedPoints(tt.args.round)
+			if err := comparePointsSlices(pol.Points, tt.want, 0); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+}
+
+func TestPolygon_SetPoint(t *testing.T) {
+	type fields struct {
+		Points []*Point
+	}
+	type args struct {
+		i     int
+		point *Point
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		want    []*Point
+		wantErr bool
+	}{
+		{
+			name: "OK",
+			fields: fields{Points: []*Point{
+				{X: 0, Y: 0},
+				{X: 45, Y: 0},
+				{X: 45, Y: 45, Calculator: &AngleCalculator{Angle: ConvertToOne(Degree, 90), Distance: 45}},
+				{X: 0, Y: 45, Calculator: &AngleCalculator{Angle: ConvertToOne(Degree, 90), Distance: 45}}},
+			},
+			args: args{
+				i:     1,
+				point: &Point{Calculator: &DirectionCalculator{Direction: ConvertToOne(Degree, 90), Distance: 45}},
+			},
+			want: []*Point{
+				{X: 0, Y: 0},
+				{X: 0, Y: 45},
+				{X: 45, Y: 45},
+				{X: 45, Y: 0},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pol := &Polygon{
+				Points: tt.fields.Points,
+			}
+			if err := pol.SetPoint(tt.args.i, tt.args.point); (err != nil) != tt.wantErr {
+				t.Errorf("SetPoint() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr {
+				return
+			}
+			pol.RoundAllPoints(2)
+			if err := comparePointsSlices(pol.Points, tt.want, 0.01); err != nil {
+				t.Errorf("SetPoint() got wrong coordinates. Got = %v, want %v", pol.Points, tt.want)
+			}
+		})
+	}
+}
+
+func TestPolygon_DiagonalsLen(t *testing.T) {
+	type fields struct {
+		Points []*Point
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		want   int
+	}{
+		{
+			name:   "4 points",
+			fields: fields{Points: []*Point{{}, {}, {}, {}}},
+			want:   2,
+		},
+		{
+			name:   "3 points",
+			fields: fields{Points: []*Point{{}, {}, {}}},
+			want:   0,
+		},
+		{
+			name:   "1 point",
+			fields: fields{Points: []*Point{{}}},
+			want:   0,
+		},
+		{
+			name:   "0 point",
+			fields: fields{Points: []*Point{}},
+			want:   0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pol := &Polygon{
+				Points: tt.fields.Points,
+			}
+			if got := pol.DiagonalsLen(); got != tt.want {
+				t.Errorf("DiagonalsLen() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }

@@ -53,7 +53,7 @@ type PointCalculating struct {
 }
 
 type PointCalculatingWithMeasures struct {
-	PointCalculating
+	Point    PointCalculating          `json:"point"`
 	Measures value.FigureMeasuresNames `json:"measures"`
 }
 

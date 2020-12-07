@@ -1,8 +1,16 @@
 package figure
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 var (
-	ErrTooMuchPoints   = errors.New("too much points for this shape")
-	ErrNotEnoughPoints = errors.New("figure hasn't enough number of points for this operation")
+	ErrTooMuchPoints   = errors.New("too much points")
+	ErrNotEnoughPoints = errors.New("not enough points")
+
+	ErrInvalidType        = errors.New("invalid type")
+	ErrVariableIsNotSlice = fmt.Errorf("%w: variable is not a slice", ErrInvalidType)
+
+	ErrPointDoesNotHaveCalculator = errors.New("point does not have a calculator")
 )

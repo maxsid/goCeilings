@@ -354,7 +354,7 @@ func getDrawingCreatingHandler(creator DrawingCreator) http.HandlerFunc {
 		drawing := Drawing{DrawingOpen: requestData.DrawingOpen, GGDrawing: *raster.NewEmptyGGDrawing()}
 		drawing.Measures = requestData.Measures.ToFigureMeasures(drawing.Measures)
 
-		if err := addRequestPointsToDrawing(&drawing, requestData.Points...); writeError(w, err) {
+		if err := drawing.AddPoints(getPointsFromRequestPoint(requestData.Points...)...); writeError(w, err) {
 			return
 		}
 
@@ -476,7 +476,7 @@ func getDrawingPointsAddingHandler(updater DrawingUpdater) http.HandlerFunc {
 		dmCopy := drawing.Measures
 		drawing.Measures = reqData.Measures.ToFigureMeasures(drawing.Measures)
 
-		if err := addRequestPointsToDrawing(drawing, reqData.Points...); writeError(w, err) {
+		if err := drawing.AddPoints(getPointsFromRequestPoint(reqData.Points...)...); writeError(w, err) {
 			return
 		}
 
@@ -554,18 +554,15 @@ func getDrawingPointUpdatingHandler(updater DrawingUpdater) http.HandlerFunc {
 			return
 		}
 
-		endPoints := drawing.Points[pointIndex+1:]
-		drawing.Points = drawing.Points[:pointIndex]
-
 		drawingMeasures := drawing.Measures
 		drawing.Measures = pointWithMeasure.Measures.ToFigureMeasures(drawing.Measures)
 
-		if err := addRequestPointsToDrawing(drawing, &pointWithMeasure.PointCalculating); writeError(w, err) {
+		point := getPointsFromRequestPoint(&pointWithMeasure.Point)[0]
+		if err := drawing.SetPoint(pointIndex, point); writeError(w, err) {
 			return
 		}
 
 		drawing.Measures = drawingMeasures
-		drawing.Points = append(drawing.Points, endPoints...)
 
 		if err := updater.UpdateDrawing(drawing); writeError(w, err) {
 			return

@@ -13,10 +13,10 @@ import (
 )
 
 var (
-	drawing1 = raster.NewGGDrawingWithPoints([]*figure.Point{{0, 0}, {0, 1.25}, {0.27, 1.25}, {0.2701, 1.71},
-		{2.2201, 1.6998}, {2.25, 0}}...)
-	drawing2 = raster.NewGGDrawingWithPoints([]*figure.Point{{0, 0}, {0, 1.55}, {0.725, 1.55}, {0.725, 1.675},
-		{0.125, 1.6751}, {0.1253, 5.9751}, {3.4252, 5.9999}, {3.45, 0}}...)
+	drawing1, _ = raster.NewGGDrawingWithPoints([]*figure.Point{{X: 0, Y: 0}, {X: 0, Y: 1.25}, {X: 0.27, Y: 1.25},
+		{X: 0.2701, Y: 1.71}, {X: 2.2201, Y: 1.6998}, {X: 2.25, Y: 0}}...)
+	drawing2, _ = raster.NewGGDrawingWithPoints([]*figure.Point{{X: 0, Y: 0}, {X: 0, Y: 1.55}, {X: 0.725, Y: 1.55},
+		{X: 0.725, Y: 1.675}, {X: 0.125, Y: 1.6751}, {X: 0.1253, Y: 5.9751}, {X: 3.4252, Y: 5.9999}, {X: 3.45, Y: 0}}...)
 )
 
 type deleteStorageFunc func()
@@ -872,8 +872,8 @@ func TestStorage_CreateDrawings(t *testing.T) {
 			args: args{userID: 1, drawing: &api.Drawing{DrawingOpen: api.DrawingOpen{ID: 10, Name: "Drawing 10"}, GGDrawing: *drawing1}},
 		},
 		{
-			name: "Not found user",
-			args: args{userID: 123, drawing: &api.Drawing{DrawingOpen: api.DrawingOpen{ID: 10, Name: "Drawing 10"}, GGDrawing: *drawing1}},
+			name:    "Not found user",
+			args:    args{userID: 123, drawing: &api.Drawing{DrawingOpen: api.DrawingOpen{ID: 10, Name: "Drawing 10"}, GGDrawing: *drawing1}},
 			wantErr: true,
 		},
 	}

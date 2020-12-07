@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/maxsid/goCeilings/figure"
 	"github.com/maxsid/goCeilings/value"
 	"io"
 	"io/ioutil"
@@ -41,22 +42,25 @@ func readListStatData(vars url.Values, amount uint) (*ListStatData, error) {
 	return &listStat, nil
 }
 
-// addRequestPointsToDrawing calculates and adds points to the Drawing from PointCalculating requests.
-func addRequestPointsToDrawing(drawing *Drawing, points ...*PointCalculating) error {
-	for _, p := range points {
+// getPointsFromRequestPoint converts []*PointCalculating requests into []*figure.Point.
+func getPointsFromRequestPoint(points ...*PointCalculating) []*figure.Point {
+	resultPoints := make([]*figure.Point, len(points))
+	for i, p := range points {
 		if p.Direction != nil && p.Distance != 0 {
-			if err := drawing.AddPointByDirection(p.Distance, *p.Direction); err != nil {
-				return err
-			}
+			resultPoints[i] = figure.NewCalculatedPoint(&figure.DirectionCalculator{
+				Direction: *p.Direction,
+				Distance:  p.Distance,
+			})
 		} else if p.Angle != nil && p.Distance != 0 {
-			if err := drawing.AddPointByAngle(p.Distance, *p.Angle); err != nil {
-				return err
-			}
+			resultPoints[i] = figure.NewCalculatedPoint(&figure.AngleCalculator{
+				Angle:    *p.Angle,
+				Distance: p.Distance,
+			})
 		} else {
-			drawing.AddPointByMeasure(p.X, p.Y)
+			resultPoints[i] = figure.NewPoint(p.X, p.Y)
 		}
 	}
-	return nil
+	return resultPoints
 }
 
 // marshalAndWrite does marshal of v variable and writes result into http.ResponseWriter.

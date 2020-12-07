@@ -6,7 +6,6 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/maxsid/goCeilings/drawing/raster"
 	"github.com/maxsid/goCeilings/figure"
-	"github.com/maxsid/goCeilings/value"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -49,11 +48,11 @@ func newMockStorage() *MockStorageT {
 	}
 
 	drawing1 := raster.NewEmptyGGDrawing()
-	drawing1.AddPoints([]*figure.Point{{0, 0}, {0, 1.25}, {0.27, 1.25}, {0.2701, 1.71},
-		{2.2201, 1.6998}, {2.25, 0}}...)
+	_ = drawing1.Polygon.AddPoints([]*figure.Point{{X: 0, Y: 0}, {X: 0, Y: 1.25}, {X: 0.27, Y: 1.25}, {X: 0.2701, Y: 1.71},
+		{X: 2.2201, Y: 1.6998}, {X: 2.25, Y: 0}}...)
 	drawing2 := raster.NewEmptyGGDrawing()
-	drawing2.AddPoints([]*figure.Point{{0, 0}, {0, 1.55}, {0.725, 1.55}, {0.725, 1.675},
-		{0.125, 1.6751}, {0.1253, 5.9751}, {3.4252, 5.9999}, {3.45, 0}}...)
+	_ = drawing2.Polygon.AddPoints([]*figure.Point{{X: 0, Y: 0}, {X: 0, Y: 1.55}, {X: 0.725, Y: 1.55}, {X: 0.725, Y: 1.675},
+		{X: 0.125, Y: 1.6751}, {X: 0.1253, Y: 5.9751}, {X: 3.4252, Y: 5.9999}, {X: 3.45, Y: 0}}...)
 	storage.drawings = []*Drawing{
 		{DrawingOpen{ID: 1, Name: "Drawing 1"}, *drawing1},
 		{DrawingOpen{ID: 2, Name: "Drawing 2"}, *drawing2},
@@ -1548,7 +1547,7 @@ func Test_getDrawingPointUpdatingHandler(t *testing.T) {
 			url:         "/drawings/1/points/2",
 			method:      http.MethodPut,
 			wantStatus:  http.StatusOK,
-			requestBody: `{"x":1.32,"y":3.1,"measures":{"length":"m"}}`,
+			requestBody: `{"point":{"x":1.32,"y":3.1},"measures":{"length":"m"}}`,
 			tokenUserID: 2,
 		},
 			DrawingID: 1,
@@ -1562,7 +1561,7 @@ func Test_getDrawingPointUpdatingHandler(t *testing.T) {
 			url:         "/drawings/1/points/2",
 			method:      http.MethodPut,
 			wantStatus:  http.StatusOK,
-			requestBody: `{"distance":132,"direction":90,"measures":{"length":"cm","angle":"deg"}}`,
+			requestBody: `{"point":{"distance":132,"direction":90},"measures":{"length":"cm","angle":"deg"}}`,
 			tokenUserID: 2,
 		},
 			DrawingID: 1,
@@ -1576,7 +1575,7 @@ func Test_getDrawingPointUpdatingHandler(t *testing.T) {
 			url:         "/drawings/1/points/3",
 			method:      http.MethodPut,
 			wantStatus:  http.StatusOK,
-			requestBody: `{"distance":3,"angle":270,"measures":{"length":"dm","angle":"deg"}}`,
+			requestBody: `{"point":{"distance":3,"angle":270},"measures":{"length":"dm","angle":"deg"}}`,
 			tokenUserID: 2,
 		},
 			DrawingID: 1,
@@ -1590,7 +1589,7 @@ func Test_getDrawingPointUpdatingHandler(t *testing.T) {
 			url:         "/drawings/1/points/42",
 			method:      http.MethodPut,
 			wantStatus:  http.StatusNotFound,
-			requestBody: `{"distance":3,"angle":270,"measures":{"length":"dm","angle":"deg"}}`,
+			requestBody: `{"point":{"distance":3,"angle":270},"measures":{"length":"dm","angle":"deg"}}`,
 			tokenUserID: 2,
 		}},
 		{TestCase: TestCase{
@@ -1598,7 +1597,7 @@ func Test_getDrawingPointUpdatingHandler(t *testing.T) {
 			url:         "/drawings/2/points/1",
 			method:      http.MethodPut,
 			wantStatus:  http.StatusNotFound,
-			requestBody: `{"distance":3,"angle":270,"measures":{"length":"dm","angle":"deg"}}`,
+			requestBody: `{"point":{"distance":3,"angle":270},"measures":{"length":"dm","angle":"deg"}}`,
 			tokenUserID: 2,
 		}},
 	}
@@ -1608,11 +1607,10 @@ func Test_getDrawingPointUpdatingHandler(t *testing.T) {
 			checkTestCase(t, tt.TestCase, storage)
 			if tt.DrawingID != 0 {
 				d, _ := storage.GetDrawing(tt.DrawingID)
+				d.RoundAllPoints(2)
 				for i, coords := range tt.PointsCoordsResult {
 					p := d.Points[i]
-					x := value.Round(p.X, value.DigitsAfterDot(coords[0]))
-					y := value.Round(p.Y, value.DigitsAfterDot(coords[1]))
-					if x != coords[0] || y != coords[1] {
+					if p.X != coords[0] || p.Y != coords[1] {
 						t.Errorf("Got wrong point coordinates. Got %v, want %v", d.Points[i], coords)
 					}
 				}
