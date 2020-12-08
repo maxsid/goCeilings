@@ -20,7 +20,7 @@ type User struct {
 type Drawing struct {
 	gorm.Model
 	Name                           string
-	Description                    drawing.Description
+	Description                    *drawing.Description
 	Area, Perimeter, Height, Width float64
 	Drawing                        *raster.GGDrawing
 }
@@ -42,7 +42,7 @@ func (d *Drawing) ToApiDrawing(ad *api.Drawing) *api.Drawing {
 	ad.GGDrawing = *d.Drawing
 	ad.GGDrawing.Description = d.Description
 	if ad.GGDrawing.Description == nil {
-		ad.GGDrawing.Description = drawing.Description{}
+		ad.GGDrawing.Description = drawing.NewDescription()
 	}
 	return ad
 }

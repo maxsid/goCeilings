@@ -30,7 +30,7 @@ const (
 
 type GGDrawing struct {
 	Polygon
-	Description drawing.Description `json:"description"`
+	Description *drawing.Description `json:"description"`
 	imageWidth  float64
 	imageHeight float64
 	Measures    *FigureMeasures `json:"measures"`
@@ -39,7 +39,7 @@ type GGDrawing struct {
 func NewEmptyGGDrawing() *GGDrawing {
 	d := &GGDrawing{
 		Polygon:     *NewPolygon(),
-		Description: make(drawing.Description),
+		Description: drawing.NewDescription(),
 		Measures:    NewFigureMeasures(),
 	}
 	return d
@@ -56,7 +56,7 @@ func NewGGDrawingWithPoints(points ...*Point) (*GGDrawing, error) {
 func NewGGDrawing() *GGDrawing {
 	d := &GGDrawing{
 		Polygon:     *NewPolygonZero(),
-		Description: make(drawing.Description),
+		Description: drawing.NewDescription(),
 		Measures:    NewFigureMeasures(),
 		imageWidth:  drawingWidth + marginHorizontal,
 		imageHeight: drawingHeight + marginVertical,
@@ -80,15 +80,14 @@ func (d *GGDrawing) Draw(drawDesc bool) (image.Image, error) {
 	}
 	d.drawLinesTitles(ggCtx, scale)
 	if drawDesc {
-		desc := make(drawing.Description)
+		desc := drawing.NewDescription()
 		d.addPolygonInfoNotes(desc)
 		d.addSidesNote(desc)
 		d.addPointsNote(desc)
 		if err := d.setFontSize(ggCtx, fontSizeNotes); err != nil {
 			return nil, err
 		}
-		desc.AddDescription(d.Description)
-		d.drawDescription(ggCtx, scale, desc)
+		d.drawDescription(ggCtx, scale, drawing.NewUnionDescription(d.Description, desc))
 	}
 	return ggCtx.Image(), nil
 }
@@ -149,7 +148,7 @@ func (d *GGDrawing) drawPointsTitles(ggCtx *gg.Context, scale float64) {
 	}
 }
 
-func (d *GGDrawing) drawDescription(ggCtx *gg.Context, drawingScale float64, desc drawing.Description) {
+func (d *GGDrawing) drawDescription(ggCtx *gg.Context, drawingScale float64, desc *drawing.Description) {
 	s := strings.Join(desc.ToStringSlice(), "\n")
 	sx, _ := d.calcDrawingSize(drawingScale)
 	sx += marginHorizontal + marginLeft
@@ -157,7 +156,7 @@ func (d *GGDrawing) drawDescription(ggCtx *gg.Context, drawingScale float64, des
 	ggCtx.Stroke()
 }
 
-func (d *GGDrawing) addPointsNote(desc drawing.Description) {
+func (d *GGDrawing) addPointsNote(desc *drawing.Description) {
 	ni := naming.NewNameIterator('A', 'Z')
 	ps := make([]string, len(d.Points))
 	for i, p := range d.Points {
@@ -165,10 +164,10 @@ func (d *GGDrawing) addPointsNote(desc drawing.Description) {
 		y := ConvertFromOneRound(d.Measures.Length, p.Y, 2)
 		ps[i] = fmt.Sprintf("%s=(%v;%v)", ni.Next(), x, y)
 	}
-	desc.Add("Points", strings.Join(ps, ", "))
+	desc.PushBack("Points", strings.Join(ps, ", "))
 }
 
-func (d *GGDrawing) addSidesNote(desc drawing.Description) {
+func (d *GGDrawing) addSidesNote(desc *drawing.Description) {
 	pol := d.Polygon
 	ni := naming.NewNameIterator('A', 'Z')
 	sides, l1, l2 := pol.Sides(), ni.Next(), ni.Next()
@@ -178,15 +177,15 @@ func (d *GGDrawing) addSidesNote(desc drawing.Description) {
 		ss[i] = fmt.Sprintf("%s%s=%v", l1, l2, dist)
 		l1, l2 = l2, ni.Next()
 	}
-	desc.Add("Sides", strings.Join(ss, ", "))
+	desc.PushBack("Sides", strings.Join(ss, ", "))
 }
 
-func (d *GGDrawing) addPolygonInfoNotes(desc drawing.Description) {
-	desc.Add("Area", fmt.Sprintf("%.2f", d.Area()))
-	desc.Add("Perimeter", fmt.Sprintf("%.2f", d.Perimeter()))
-	desc.Add("Width", fmt.Sprintf("%.2f", d.Width()))
-	desc.Add("Height", fmt.Sprintf("%.2f", d.Height()))
-	desc.Add("Points", fmt.Sprintf("%d", d.Len()))
+func (d *GGDrawing) addPolygonInfoNotes(desc *drawing.Description) {
+	desc.PushBack("Area", fmt.Sprintf("%.2f", d.Area()))
+	desc.PushBack("Perimeter", fmt.Sprintf("%.2f", d.Perimeter()))
+	desc.PushBack("Width", fmt.Sprintf("%.2f", d.Width()))
+	desc.PushBack("Height", fmt.Sprintf("%.2f", d.Height()))
+	desc.PushBack("Points", fmt.Sprintf("%d", d.Len()))
 }
 
 func (d *GGDrawing) getXY(p *Point, scale float64) (x, y float64) {

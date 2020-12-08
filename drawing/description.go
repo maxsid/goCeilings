@@ -9,22 +9,28 @@ import (
 
 var ErrWrongArgumentType = errors.New("wrong argument type")
 
-type Description map[string]string
+type Description [][2]string
 
-func (d Description) Add(key, value string) {
-	d[key] = value
+func NewDescription() *Description {
+	return new(Description)
 }
 
-func (d Description) AddDescription(ad Description) {
-	for k, v := range ad {
-		d[k] = v
+func NewUnionDescription(descriptions ...*Description) *Description {
+	out := make(Description, 0)
+	for _, d := range descriptions {
+		out = append(out, *d...)
 	}
+	return &out
+}
+
+func (d *Description) PushBack(key, value string) {
+	*d = append(*d, [2]string{key, value})
 }
 
 func (d Description) ToStringSlice() []string {
 	out := make([]string, 0)
-	for k, v := range d {
-		out = append(out, fmt.Sprintf("%s: %s", k, v))
+	for _, v := range d {
+		out = append(out, fmt.Sprintf("%s: %s", v[0], v[1]))
 	}
 	return out
 }
