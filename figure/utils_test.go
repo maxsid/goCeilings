@@ -2,9 +2,9 @@ package figure
 
 import (
 	"fmt"
+	"github.com/go-test/deep"
 	. "github.com/maxsid/goCeilings/value"
 	"math"
-	"reflect"
 	"testing"
 )
 
@@ -86,8 +86,11 @@ func Test_sliceOfForwardElements(t *testing.T) {
 				t.Errorf("sliceOfForwardElements() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("sliceOfForwardElements() got = %v, want %v", got, tt.want)
+			if tt.wantErr {
+				return
+			}
+			if diff := deep.Equal(got, tt.want); diff != nil {
+				t.Errorf("sliceOfForwardElements() -> %v", diff)
 			}
 		})
 	}

@@ -1,8 +1,8 @@
 package generator
 
 import (
+	"github.com/go-test/deep"
 	"math/rand"
-	"reflect"
 	"testing"
 )
 
@@ -29,8 +29,9 @@ func Test_getSymbolsSlice(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := getSymbolsSlice(tt.args.start, tt.args.end); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("getSymbolsSlice() = %v, want %v", got, tt.want)
+			got := getSymbolsSlice(tt.args.start, tt.args.end)
+			if diff := deep.Equal(got, tt.want); diff != nil {
+				t.Errorf("getSymbolsSlice() -> %v", diff)
 			}
 		})
 	}
@@ -66,8 +67,9 @@ func Test_getRandomString(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := getRandomString(tt.args.symbols, tt.args.count); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("getRandomString() = %v, want %v", got, tt.want)
+			got := getRandomString(tt.args.symbols, tt.args.count)
+			if diff := deep.Equal(got, tt.want); diff != nil {
+				t.Errorf("getRandomString() -> %v", diff)
 			}
 		})
 	}

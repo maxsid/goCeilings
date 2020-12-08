@@ -1,8 +1,8 @@
 package figure
 
 import (
+	"github.com/go-test/deep"
 	. "github.com/maxsid/goCeilings/value"
-	"reflect"
 	"testing"
 )
 
@@ -92,8 +92,11 @@ func TestPolygon_LastPoint(t *testing.T) {
 				t.Errorf("LastPoint() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("LastPoint() got = %v, want %v", got, tt.want)
+			if tt.wantErr || err != nil {
+				return
+			}
+			if diff := deep.Equal(got, tt.want); diff != nil {
+				t.Errorf("LastPoint() -> %v", diff)
 			}
 		})
 	}
@@ -337,8 +340,11 @@ func TestPolygon_LastSide(t *testing.T) {
 				t.Errorf("LastSide() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("LastSide() got = %v, want %v", got, tt.want)
+			if tt.wantErr {
+				return
+			}
+			if diff := deep.Equal(got, tt.want); diff != nil {
+				t.Errorf("LastSide() -> %v", diff)
 			}
 		})
 	}
@@ -394,11 +400,12 @@ func TestPolygon_AddPointByDirection(t *testing.T) {
 				t.Errorf("AddPointByDirection() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !tt.wantErr {
-				got, want := notPointerPoints(pol.Points), notPointerPoints(tt.want)
-				if !reflect.DeepEqual(got, want) {
-					t.Errorf("AddPointByDirection() wrong result = %v, want %v", got, want)
-				}
+			if tt.wantErr {
+				return
+			}
+			got, want := notPointerPoints(pol.Points), notPointerPoints(tt.want)
+			if diff := deep.Equal(got, want); diff != nil {
+				t.Errorf("AddPointByDirection() -> %v", diff)
 			}
 		})
 	}
@@ -453,11 +460,12 @@ func TestPolygon_AddPointByAngle(t *testing.T) {
 			if err := pol.AddPointByAngle(tt.args.distance, rads); (err != nil) != tt.wantErr {
 				t.Errorf("AddPointByAngle() error = %v, wantErr %v", err, tt.wantErr)
 			}
-			if !tt.wantErr {
-				got, want := notPointerPoints(pol.Points), notPointerPoints(tt.want)
-				if !reflect.DeepEqual(got, want) {
-					t.Errorf("AddPointByDirection() wrong result = %v, want %v", got, want)
-				}
+			if tt.wantErr {
+				return
+			}
+			got, want := notPointerPoints(pol.Points), notPointerPoints(tt.want)
+			if diff := deep.Equal(got, want); diff != nil {
+				t.Errorf("AddPointByDirection() -> %v", diff)
 			}
 		})
 	}

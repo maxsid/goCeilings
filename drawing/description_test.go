@@ -1,7 +1,7 @@
 package drawing
 
 import (
-	"reflect"
+	"github.com/go-test/deep"
 	"testing"
 )
 
@@ -30,8 +30,9 @@ func TestNewUnionDescription(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewUnionDescription(tt.args.descriptions...); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("NewUnionDescription() = %v, want %v", got, tt.want)
+			got := NewUnionDescription(tt.args.descriptions...)
+			if diff := deep.Equal(got, tt.want); diff != nil {
+				t.Errorf("NewUnionDescription() -> %v", diff)
 			}
 		})
 	}
@@ -58,8 +59,8 @@ func TestDescription_PushBack(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.d.PushBack(tt.args.key, tt.args.value)
-			if !reflect.DeepEqual(tt.d, tt.want) {
-				t.Errorf("PushBack() = %v, want %v", tt.d, tt.want)
+			if diff := deep.Equal(tt.d, tt.want); diff != nil {
+				t.Errorf("PushBack() -> %v", diff)
 			}
 		})
 	}
@@ -79,8 +80,9 @@ func TestDescription_ToStringSlice(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.d.ToStringSlice(); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("ToStringSlice() = %v, want %v", got, tt.want)
+			got := tt.d.ToStringSlice()
+			if diff := deep.Equal(got, tt.want); diff != nil {
+				t.Errorf("ToStringSlice() -> %v", diff)
 			}
 		})
 	}

@@ -2,13 +2,13 @@ package storage
 
 import (
 	"errors"
+	"github.com/go-test/deep"
 	"github.com/maxsid/goCeilings/api"
 	"github.com/maxsid/goCeilings/drawing/raster"
 	"github.com/maxsid/goCeilings/figure"
 	"io/ioutil"
 	"os"
 	"path"
-	"reflect"
 	"testing"
 )
 
@@ -147,10 +147,11 @@ func TestStorage_GetUser(t *testing.T) {
 				t.Errorf("GetUser() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if err == nil {
-				if gotOpen := got.UserOpen; !reflect.DeepEqual(gotOpen, tt.want) {
-					t.Errorf("GetUser() got = %v, want %v", gotOpen, tt.want)
-				}
+			if tt.wantErr || err != nil {
+				return
+			}
+			if diff := deep.Equal(got.UserOpen, tt.want); diff != nil {
+				t.Errorf("GetUser() -> %v", diff)
 			}
 		})
 	}
@@ -204,11 +205,13 @@ func TestStorage_GetUserByID(t *testing.T) {
 				t.Errorf("GetUserByID() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if err == nil {
-				if gotOpen := got.UserOpen; !reflect.DeepEqual(gotOpen, tt.want) {
-					t.Errorf("GetUserByID() got = %v, want %v", gotOpen, tt.want)
-				}
+			if tt.wantErr || err == nil {
+				return
 			}
+			if diff := deep.Equal(got.UserOpen, tt.want); diff != nil {
+				t.Errorf("GetUserByID() -> %v", diff)
+			}
+
 		})
 	}
 }
@@ -299,8 +302,8 @@ func TestStorage_UpdateUser(t *testing.T) {
 					t.Errorf("GetUserByID() after UpdateUser() got error = %v", err)
 					return
 				}
-				if !reflect.DeepEqual(tt.args.user, user) {
-					t.Errorf("UpdateUser() hasn't changed data, got %v, want %v", user, tt.args.user)
+				if diff := deep.Equal(tt.args.user, user); diff != nil {
+					t.Errorf("UpdateUser() -> %v", diff)
 				}
 			}
 		})
@@ -394,8 +397,8 @@ func TestStorage_GetUsersList(t *testing.T) {
 				t.Errorf("GetUsersList() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("GetUsersList() got = %v, want %v", got, tt.want)
+			if diff := deep.Equal(got, tt.want); diff != nil {
+				t.Errorf("GetUsersList() -> %v", diff)
 			}
 		})
 	}
@@ -468,8 +471,11 @@ func TestStorage_GetDrawing(t *testing.T) {
 				t.Errorf("GetDrawing() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("GetDrawing() got = %v, want %v", got, tt.want)
+			if tt.wantErr {
+				return
+			}
+			if diff := deep.Equal(got, tt.want); diff != nil {
+				t.Errorf("GetDrawing() -> %v", diff)
 			}
 		})
 	}
@@ -521,8 +527,8 @@ func TestStorage_GetDrawingOfUser(t *testing.T) {
 				t.Errorf("GetDrawingOfUser() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("GetDrawingOfUser() got = %v, want %v", got, tt.want)
+			if diff := deep.Equal(got, tt.want); diff != nil {
+				t.Errorf("GetDrawingOfUser() -> %v", diff)
 			}
 		})
 	}
@@ -545,8 +551,8 @@ func checkUpdateDrawing(t *testing.T, storage *Storage, drawing *api.Drawing, us
 			t.Errorf("GetDrawing() got error: %v", err)
 			return
 		}
-		if !reflect.DeepEqual(drawing, got) {
-			t.Errorf("Got not equal drawings. Got %v, want %v", got, drawing)
+		if diff := deep.Equal(drawing, got); diff != nil {
+			t.Errorf("Got not equal drawings -> %v", diff)
 		}
 	}
 }
@@ -801,8 +807,8 @@ func TestStorage_GetDrawingsList(t *testing.T) {
 				t.Errorf("GetDrawingsList() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("GetDrawingsList() got = %v, want %v", got, tt.want)
+			if diff := deep.Equal(got, tt.want); diff != nil {
+				t.Errorf("GetDrawingsList() -> %v", diff)
 			}
 		})
 	}
@@ -888,8 +894,8 @@ func TestStorage_CreateDrawings(t *testing.T) {
 					t.Errorf("GetDrawing() error: %v", err)
 					return
 				}
-				if !reflect.DeepEqual(tt.args.drawing, d) {
-					t.Errorf("Drawings aren't equal. Got %v, want %v", d, tt.args.drawing)
+				if diff := deep.Equal(tt.args.drawing, d); diff != nil {
+					t.Errorf("Drawings aren't equal -> %v", diff)
 				}
 			}
 		})

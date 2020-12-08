@@ -2,8 +2,8 @@ package figure
 
 import (
 	"fmt"
+	"github.com/go-test/deep"
 	. "github.com/maxsid/goCeilings/value"
-	"reflect"
 	"testing"
 )
 
@@ -365,9 +365,13 @@ func TestPoint_UnmarshalJSON(t *testing.T) {
 			p := &Point{}
 			if err := p.UnmarshalJSON(tt.args.bytes); (err != nil) != tt.wantErr {
 				t.Errorf("UnmarshalJSON() error = %v, wantErr %v", err, tt.wantErr)
+				return
 			}
-			if !tt.wantErr && !reflect.DeepEqual(p, tt.want) {
-				t.Errorf("UnmarshalJSON() got = %+v (calc: %+v), want %+v (calc: %+v)", p, p.Calculator, tt.want, tt.want.Calculator)
+			if tt.wantErr {
+				return
+			}
+			if diff := deep.Equal(p, tt.want); diff != nil {
+				t.Errorf("UnmarshalJSON() -> %v)", diff)
 			}
 		})
 	}

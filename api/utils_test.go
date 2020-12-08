@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/go-test/deep"
 	"github.com/maxsid/goCeilings/value"
 	"io"
 	"math"
@@ -103,8 +104,8 @@ func Test_readListStatData(t *testing.T) {
 				t.Errorf("readListStatData() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("readListStatData() got = %v, want %v", got, tt.want)
+			if diff := deep.Equal(got, tt.want); diff != nil {
+				t.Errorf("readListStatData() -> %v", diff)
 			}
 		})
 	}
@@ -252,9 +253,13 @@ func Test_unmarshalRequestBody(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if err := unmarshalReaderContent(tt.args.body, tt.args.v); (err != nil) != tt.wantErr {
 				t.Errorf("unmarshalReaderContent() error = %v, wantErr %v", err, tt.wantErr)
+				return
 			}
-			if !tt.wantErr && !reflect.DeepEqual(tt.wantV, tt.args.v) {
-				t.Errorf("unmarshalReaderContent() got V = %v, want %v", tt.args.v, tt.wantV)
+			if tt.wantErr {
+				return
+			}
+			if diff := deep.Equal(tt.wantV, tt.args.v); diff != nil {
+				t.Errorf("unmarshalReaderContent() -> %v", diff)
 			}
 		})
 	}
@@ -589,8 +594,11 @@ func Test_getSettable(t *testing.T) {
 				t.Errorf("getSettable() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !tt.wantErr && !reflect.DeepEqual(got, &tt.want) {
-				t.Errorf("getSettable() got = %v, want %v", got, tt.want)
+			if tt.wantErr {
+				return
+			}
+			if diff := deep.Equal(got, &tt.want); diff != nil {
+				t.Errorf("getSettable() -> %v", diff)
 			}
 		})
 	}
