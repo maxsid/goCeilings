@@ -7,6 +7,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/maxsid/goCeilings/drawing/raster"
 	"github.com/maxsid/goCeilings/value"
+	"github.com/urfave/negroni"
 	"image/png"
 	"log"
 	"net/http"
@@ -45,11 +46,24 @@ func Run(addr string, st Storage) error {
 	addHandlersToRouter(router, st)
 	addMiddlewaresToRouter(router, st)
 
+	n := getNegroniHandler(router)
+
 	log.Printf("API listening on %s...", addr)
-	if err := http.ListenAndServe(addr, router); err != nil {
+	if err := http.ListenAndServe(addr, n); err != nil {
 		return err
 	}
 	return nil
+}
+
+func getNegroniHandler(router http.Handler) http.Handler {
+	rec := negroni.NewRecovery()
+	rec.PrintStack = false
+
+	n := negroni.New()
+	n.Use(rec)
+	n.Use(negroni.NewLogger())
+	n.UseHandler(router)
+	return n
 }
 
 func addMiddlewaresToRouter(router *mux.Router, st Storage) {
