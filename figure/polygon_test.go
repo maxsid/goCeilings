@@ -3,6 +3,7 @@ package figure
 import (
 	"github.com/go-test/deep"
 	. "github.com/maxsid/goCeilings/value"
+	"reflect"
 	"testing"
 )
 
@@ -783,6 +784,198 @@ func TestPolygon_DiagonalsLen(t *testing.T) {
 			}
 			if got := pol.DiagonalsLen(); got != tt.want {
 				t.Errorf("DiagonalsLen() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPolygon_TopPoint(t *testing.T) {
+	type fields struct {
+		Points []*Point
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		want    *Point
+		wantErr bool
+	}{
+		{
+			name: "OK",
+			fields: fields{Points: []*Point{
+				{X: 0, Y: 0},
+				{X: 124, Y: 41},
+				{X: 321, Y: 413},
+				{X: -321, Y: -413},
+			}},
+			want: &Point{X: 321, Y: 413},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pol := &Polygon{
+				Points: tt.fields.Points,
+			}
+			got, err := pol.TopPoint()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("TopPoint() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("TopPoint() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPolygon_LowPoint(t *testing.T) {
+	type fields struct {
+		Points []*Point
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		want    *Point
+		wantErr bool
+	}{
+		{
+			name: "OK",
+			fields: fields{Points: []*Point{
+				{X: 0, Y: 0},
+				{X: 124, Y: 41},
+				{X: 321, Y: 413},
+				{X: -321, Y: -413},
+			}},
+			want: &Point{X: -321, Y: -413},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pol := &Polygon{
+				Points: tt.fields.Points,
+			}
+			got, err := pol.LowPoint()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("LowPoint() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("LowPoint() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPolygon_LeftPoint(t *testing.T) {
+	type fields struct {
+		Points []*Point
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		want    *Point
+		wantErr bool
+	}{
+		{
+			name: "OK",
+			fields: fields{Points: []*Point{
+				{X: 0, Y: 0},
+				{X: 124, Y: 41},
+				{X: 321, Y: 413},
+				{X: -321, Y: -413},
+			}},
+			want: &Point{X: -321, Y: -413},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pol := &Polygon{
+				Points: tt.fields.Points,
+			}
+			got, err := pol.LeftPoint()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("LeftPoint() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("LeftPoint() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPolygon_RightPoint(t *testing.T) {
+	type fields struct {
+		Points []*Point
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		want    *Point
+		wantErr bool
+	}{
+		{
+			name: "OK",
+			fields: fields{Points: []*Point{
+				{X: 0, Y: 0},
+				{X: 124, Y: 41},
+				{X: 321, Y: 413},
+				{X: -321, Y: -413},
+			}},
+			want: &Point{X: 321, Y: 413},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pol := &Polygon{
+				Points: tt.fields.Points,
+			}
+			got, err := pol.RightPoint()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("RightPoint() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("RightPoint() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPolygon_findPoint(t *testing.T) {
+	type fields struct {
+		Points []*Point
+	}
+	type args struct {
+		compFunc func(prev, cur *Point) bool
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		want    *Point
+		wantErr bool
+	}{
+		{
+			name:   "Error too small points",
+			fields: fields{Points: []*Point{}},
+			args: args{compFunc: func(prev, cur *Point) bool {
+				return prev != cur
+			}},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pol := &Polygon{
+				Points: tt.fields.Points,
+			}
+			got, err := pol.findPoint(tt.args.compFunc)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("findPoint() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("findPoint() got = %v, want %v", got, tt.want)
 			}
 		})
 	}

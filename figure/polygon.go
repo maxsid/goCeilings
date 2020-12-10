@@ -2,6 +2,7 @@ package figure
 
 import (
 	"errors"
+	"fmt"
 	"math"
 )
 
@@ -135,36 +136,59 @@ func (pol *Polygon) AddPointByAngle(distance float64, angle float64) error {
 	return pol.AddPoints(p)
 }
 
+func (pol *Polygon) findPoint(compFunc func(prev, cur *Point) bool) (*Point, error) {
+	if pol.Len() == 0 {
+		return nil, fmt.Errorf("could not find a point: %w (0), must be at least 1", ErrNotEnoughPoints)
+	}
+	out := pol.Points[0]
+	for _, p := range pol.Points[1:] {
+		if compFunc(out, p) {
+			out = p
+		}
+	}
+	return out, nil
+}
+
+func (pol *Polygon) TopPoint() (*Point, error) {
+	return pol.findPoint(func(out, comp *Point) bool {
+		return out.Y < comp.Y
+	})
+}
+
+func (pol *Polygon) LowPoint() (*Point, error) {
+	return pol.findPoint(func(out, comp *Point) bool {
+		return out.Y > comp.Y
+	})
+}
+
+func (pol *Polygon) LeftPoint() (*Point, error) {
+	return pol.findPoint(func(out, comp *Point) bool {
+		return out.X > comp.X
+	})
+}
+
+func (pol *Polygon) RightPoint() (*Point, error) {
+	return pol.findPoint(func(out, comp *Point) bool {
+		return out.X < comp.X
+	})
+}
+
 func (pol *Polygon) Width() float64 {
 	if pol.Len() < 2 {
 		return 0
 	}
-	minX, maxX := pol.Points[0].X, pol.Points[0].X
-	for _, p := range pol.Points[1:] {
-		if minX > p.X {
-			minX = p.X
-		}
-		if maxX < p.X {
-			maxX = p.X
-		}
-	}
-	return math.Abs(maxX - minX)
+	left, _ := pol.LeftPoint()
+	right, _ := pol.RightPoint()
+	return math.Abs(right.X - left.X)
 }
 
 func (pol *Polygon) Height() float64 {
 	if pol.Len() < 2 {
 		return 0
 	}
-	minY, maxY := pol.Points[0].Y, pol.Points[0].Y
-	for _, p := range pol.Points[1:] {
-		if minY > p.Y {
-			minY = p.Y
-		}
-		if maxY < p.Y {
-			maxY = p.Y
-		}
-	}
-	return math.Abs(maxY - minY)
+	top, _ := pol.TopPoint()
+	low, _ := pol.LowPoint()
+	return math.Abs(top.Y - low.Y)
 }
 
 // Rotation rotates the polygon where o Points is the central point and a is an angle of rotation in radians.

@@ -1,6 +1,7 @@
 package raster
 
 import (
+	"bytes"
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
@@ -12,7 +13,7 @@ import (
 	. "github.com/maxsid/goCeilings/value"
 	"golang.org/x/image/colornames"
 	"golang.org/x/image/font/gofont/goregular"
-	"image"
+	"io/ioutil"
 	"strings"
 )
 
@@ -30,10 +31,9 @@ const (
 
 type GGDrawing struct {
 	Polygon
-	Description *drawing.Description `json:"description"`
-	imageWidth  float64
-	imageHeight float64
-	Measures    *FigureMeasures `json:"measures"`
+	Description      *drawing.Description `json:"description"`
+	Measures         *FigureMeasures      `json:"measures"`
+	offsetX, offsetY float64
 }
 
 func NewEmptyGGDrawing() *GGDrawing {
@@ -58,43 +58,54 @@ func NewGGDrawing() *GGDrawing {
 		Polygon:     *NewPolygonZero(),
 		Description: drawing.NewDescription(),
 		Measures:    NewFigureMeasures(),
-		imageWidth:  drawingWidth + marginHorizontal,
-		imageHeight: drawingHeight + marginVertical,
 	}
 	return d
 }
 
-func (d *GGDrawing) Draw(drawDesc bool) (image.Image, error) {
-	scale := d.calcDrawScale()
-	d.calcImageSize(scale, drawDesc)
-	ggCtx := gg.NewContext(int(d.imageWidth), int(d.imageHeight))
-	d.setBackground(ggCtx)
+func (d *GGDrawing) Draw(drawDesc bool) ([]byte, error) {
+	if d.Len() < 3 {
+		return nil, fmt.Errorf("%w for drawing (%d), have to be at least 3", ErrTooFewPoints, d.Len())
+	}
+	scale := calcDrawScale(d.Polygon.Width(), d.Polygon.Height())
+	d.updateOffset(scale)
+	imageWidth, imageHeight := calcImageSize(scale, d.Polygon.Width(), d.Polygon.Height(), drawDesc)
+	ggCtx := gg.NewContext(imageWidth, imageHeight)
+	setBackground(ggCtx)
 	d.drawLines(ggCtx, scale)
 	d.drawPoints(ggCtx, scale)
-	if err := d.setFontSize(ggCtx, fontSizeSideTitle); err != nil {
+	if err := setFontSize(ggCtx, fontSizeSideTitle); err != nil {
 		return nil, err
 	}
-	d.drawPointsTitles(ggCtx, scale)
-	if err := d.setFontSize(ggCtx, fontSizePointTitle); err != nil {
+	d.drawPointsTitles(ggCtx, imageHeight, scale)
+	if err := setFontSize(ggCtx, fontSizePointTitle); err != nil {
 		return nil, err
 	}
-	d.drawLinesTitles(ggCtx, scale)
+	d.drawLinesTitles(ggCtx, imageHeight, scale)
 	if drawDesc {
 		desc := drawing.NewDescription()
-		d.addPolygonInfoNotes(desc)
-		d.addSidesNote(desc)
-		d.addPointsNote(desc)
-		if err := d.setFontSize(ggCtx, fontSizeNotes); err != nil {
+		d.addPolygonInfoToDescription(desc)
+		d.addSidesToDescription(desc)
+		d.addPointsToDescription(desc)
+		if err := setFontSize(ggCtx, fontSizeNotes); err != nil {
 			return nil, err
 		}
 		d.drawDescription(ggCtx, scale, drawing.NewUnionDescription(d.Description, desc))
 	}
-	return ggCtx.Image(), nil
+	return contextToPNGBytes(ggCtx)
 }
 
-func (d *GGDrawing) setBackground(ggCtx *gg.Context) {
-	ggCtx.SetColor(colornames.White)
-	ggCtx.Clear()
+func (d *GGDrawing) DrawingMIME() string {
+	return "image/png"
+}
+
+func (d *GGDrawing) GetDrawer() drawing.Drawer {
+	return d
+}
+
+func (d *GGDrawing) updateOffset(scale float64) {
+	left, _ := d.Polygon.LeftPoint()
+	low, _ := d.Polygon.LowPoint()
+	d.offsetX, d.offsetY = -left.X*scale, -low.Y*scale
 }
 
 func (d *GGDrawing) drawPoints(ggCtx *gg.Context, scale float64) {
@@ -102,7 +113,7 @@ func (d *GGDrawing) drawPoints(ggCtx *gg.Context, scale float64) {
 	defer ggCtx.InvertY()
 	ggCtx.SetColor(colornames.Black)
 	for _, p := range d.Points {
-		x, y := d.getXY(p, scale)
+		x, y := getXYOnDrawing(p, d.offsetX, d.offsetY, scale)
 		ggCtx.DrawPoint(x, y, pointSize)
 		ggCtx.Stroke()
 	}
@@ -115,21 +126,21 @@ func (d *GGDrawing) drawLines(ggCtx *gg.Context, scale float64) {
 	ggCtx.SetColor(colornames.Red)
 	ggCtx.SetLineWidth(lineWidth)
 	for _, s := range pol.Sides() {
-		x1, y1 := d.getXY(s.A, scale)
-		x2, y2 := d.getXY(s.B, scale)
+		x1, y1 := getXYOnDrawing(s.A, d.offsetX, d.offsetY, scale)
+		x2, y2 := getXYOnDrawing(s.B, d.offsetX, d.offsetY, scale)
 		ggCtx.DrawLine(x1, y1, x2, y2)
 		ggCtx.Stroke()
 	}
 }
 
-func (d *GGDrawing) drawLinesTitles(ggCtx *gg.Context, scale float64) {
+func (d *GGDrawing) drawLinesTitles(ggCtx *gg.Context, imageHeight int, scale float64) {
 	pol := d.Polygon
 	for _, l := range pol.Sides() {
 		dist := fmt.Sprint(ConvertFromOneRound(d.Measures.Length, l.Distance(), 2))
 		w, h := ggCtx.MeasureString(dist)
-		x1, y1 := d.getXY(l.A, scale)
-		x2, y2 := d.getXY(l.B, scale)
-		x, y := (x1+x2)/2-(w/2), d.imageHeight-((y1+y2)/2-(h/2))
+		x1, y1 := getXYOnDrawing(l.A, d.offsetX, d.offsetY, scale)
+		x2, y2 := getXYOnDrawing(l.B, d.offsetX, d.offsetY, scale)
+		x, y := (x1+x2)/2-(w/2), float64(imageHeight)-((y1+y2)/2-(h/2))
 		ggCtx.SetColor(colornames.White)
 		ggCtx.DrawRectangle(x+2, y-h, w-2, h)
 		ggCtx.Fill()
@@ -139,24 +150,24 @@ func (d *GGDrawing) drawLinesTitles(ggCtx *gg.Context, scale float64) {
 	}
 }
 
-func (d *GGDrawing) drawPointsTitles(ggCtx *gg.Context, scale float64) {
+func (d *GGDrawing) drawPointsTitles(ggCtx *gg.Context, imageHeight int, scale float64) {
 	ni := naming.NewNameIterator('A', 'Z')
 	for _, p := range d.Points {
-		x, y := d.getXY(p, scale)
-		ggCtx.DrawString(ni.Next(), marginLetterX+x, d.imageHeight-(y-marginLetterY))
+		x, y := getXYOnDrawing(p, d.offsetX, d.offsetY, scale)
+		ggCtx.DrawString(ni.Next(), marginLetterX+x, float64(imageHeight)-(y-marginLetterY))
 		ggCtx.Stroke()
 	}
 }
 
 func (d *GGDrawing) drawDescription(ggCtx *gg.Context, drawingScale float64, desc *drawing.Description) {
 	s := strings.Join(desc.ToStringSlice(), "\n")
-	sx, _ := d.calcDrawingSize(drawingScale)
+	sx := Round(d.Polygon.Width()*drawingScale, 2)
 	sx += marginHorizontal + marginLeft
 	ggCtx.DrawStringWrapped(s, sx, marginTop, 0, 0, descriptionWidth, 1.5, gg.AlignLeft)
 	ggCtx.Stroke()
 }
 
-func (d *GGDrawing) addPointsNote(desc *drawing.Description) {
+func (d *GGDrawing) addPointsToDescription(desc *drawing.Description) {
 	ni := naming.NewNameIterator('A', 'Z')
 	ps := make([]string, len(d.Points))
 	for i, p := range d.Points {
@@ -167,7 +178,7 @@ func (d *GGDrawing) addPointsNote(desc *drawing.Description) {
 	desc.PushBack("Points", strings.Join(ps, ", "))
 }
 
-func (d *GGDrawing) addSidesNote(desc *drawing.Description) {
+func (d *GGDrawing) addSidesToDescription(desc *drawing.Description) {
 	pol := d.Polygon
 	ni := naming.NewNameIterator('A', 'Z')
 	sides, l1, l2 := pol.Sides(), ni.Next(), ni.Next()
@@ -180,65 +191,12 @@ func (d *GGDrawing) addSidesNote(desc *drawing.Description) {
 	desc.PushBack("Sides", strings.Join(ss, ", "))
 }
 
-func (d *GGDrawing) addPolygonInfoNotes(desc *drawing.Description) {
+func (d *GGDrawing) addPolygonInfoToDescription(desc *drawing.Description) {
 	desc.PushBack("Area", fmt.Sprintf("%.2f", d.Area()))
 	desc.PushBack("Perimeter", fmt.Sprintf("%.2f", d.Perimeter()))
 	desc.PushBack("Width", fmt.Sprintf("%.2f", d.Width()))
 	desc.PushBack("Height", fmt.Sprintf("%.2f", d.Height()))
 	desc.PushBack("Points", fmt.Sprintf("%d", d.Len()))
-}
-
-func (d *GGDrawing) getXY(p *Point, scale float64) (x, y float64) {
-	x = marginLeft + (ConvertFromOneRound(d.Measures.Length, p.X, 2) * scale)
-	y = marginDown + (ConvertFromOneRound(d.Measures.Length, p.Y, 2) * scale)
-	return
-}
-
-func (d *GGDrawing) getContextHeight(scale float64) int {
-	_, hf := d.calcDrawingSize(scale)
-	h := int(hf)
-	if hf-float64(h) != 0 {
-		h++
-	}
-	return h + marginVertical
-}
-
-func (d *GGDrawing) calcDrawScale() float64 {
-	pol := d.Polygon
-	wScale := (drawingWidth - marginHorizontal) / ConvertFromOne(d.Measures.Length, pol.Width())
-	hScale := (drawingHeight - marginVertical) / ConvertFromOne(d.Measures.Length, pol.Height())
-	scale := wScale
-	if wScale > hScale {
-		scale = hScale
-	}
-	return scale
-}
-
-func (d *GGDrawing) calcImageSize(drawScale float64, drawDesc bool) {
-	w, h := d.calcDrawingSize(drawScale)
-	d.imageWidth, d.imageHeight = w+marginHorizontal, h+marginVertical
-	if drawDesc {
-		d.imageWidth += marginHorizontal + descriptionWidth
-	}
-}
-
-func (d *GGDrawing) calcDrawingSize(drawScale float64) (w, h float64) {
-	pol := d.Polygon
-	w = Round(ConvertFromOne(d.Measures.Length, pol.Width())*drawScale, 2)
-	h = Round(ConvertFromOne(d.Measures.Length, pol.Height())*drawScale, 2)
-	return
-}
-
-func (d *GGDrawing) setFontSize(ggCtx *gg.Context, size float64) error {
-	font, err := truetype.Parse(goregular.TTF)
-	if err != nil {
-		return err
-	}
-	face := truetype.NewFace(font, &truetype.Options{
-		Size: size,
-	})
-	ggCtx.SetFontFace(face)
-	return nil
 }
 
 func (d *GGDrawing) AddPoints(points ...*Point) error {
@@ -328,4 +286,57 @@ func (d *GGDrawing) Value() (driver.Value, error) {
 		return nil, err
 	}
 	return data, nil
+}
+
+func calcDrawScale(polW, polH float64) float64 {
+	scale := (drawingWidth - marginHorizontal) / polW
+	hScale := (drawingHeight - marginVertical) / polH
+	if scale > hScale {
+		scale = hScale
+	}
+	return scale
+}
+
+func calcImageSize(drawScale, polW, polH float64, drawDesc bool) (w, h int) {
+	w, h = int(Round(polW*drawScale, 0)), int(Round(polH*drawScale, 0))
+	w, h = w+marginHorizontal, h+marginVertical
+	if drawDesc {
+		w += marginHorizontal + descriptionWidth
+	}
+	return
+}
+
+func contextToPNGBytes(ctx *gg.Context) ([]byte, error) {
+	buf := bytes.NewBuffer(nil)
+	if err := ctx.EncodePNG(buf); err != nil {
+		return nil, err
+	}
+	out, err := ioutil.ReadAll(buf)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func getXYOnDrawing(p *Point, offsetX, offsetY, scale float64) (x, y float64) {
+	x = offsetX + marginLeft + p.X*scale
+	y = offsetY + marginDown + p.Y*scale
+	return
+}
+
+func setBackground(ggCtx *gg.Context) {
+	ggCtx.SetColor(colornames.White)
+	ggCtx.Clear()
+}
+
+func setFontSize(ggCtx *gg.Context, size float64) error {
+	font, err := truetype.Parse(goregular.TTF)
+	if err != nil {
+		return err
+	}
+	face := truetype.NewFace(font, &truetype.Options{
+		Size: size,
+	})
+	ggCtx.SetFontFace(face)
+	return nil
 }

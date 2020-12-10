@@ -8,7 +8,6 @@ import (
 	"github.com/maxsid/goCeilings/drawing/raster"
 	"github.com/maxsid/goCeilings/value"
 	"github.com/urfave/negroni"
-	"image/png"
 	"log"
 	"net/http"
 	"regexp"
@@ -440,16 +439,14 @@ func drawingImageHandler(w http.ResponseWriter, req *http.Request) {
 	if err := parseURLParamValue(req.URL.Query(), urlParamInfo, &drawDescription); err != nil && !errors.Is(err, ErrNotFound) && writeError(w, err) {
 		return
 	}
-
-	image, err := drawing.Draw(drawDescription)
+	drawer := drawing.GetDrawer()
+	imageBytes, err := drawer.Draw(drawDescription)
 	if writeError(w, err) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "image/png")
-	if err = png.Encode(w, image); writeError(w, err) {
-		return
-	}
+	w.Header().Set("Content-Type", drawer.DrawingMIME())
+	_, _ = w.Write(imageBytes)
 }
 
 // =====================
