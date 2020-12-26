@@ -14,12 +14,9 @@ import (
 	"time"
 )
 
-const (
-	ctxKeyUser = ctxKey(iota)
-	ctxKeyDrawing
-	ctxKeyPointIndex
-	ctxKeyPoint
-)
+const ctxKeyUserStorage = ctxKey(iota)
+
+const defaultAddress = "127.0.0.1:8081"
 
 const (
 	pathVarUserID      = pathVarKey("user_id")
@@ -35,8 +32,7 @@ const (
 	urlParamMeasure   = urlParamKey("m")
 )
 
-const defaultAddress = "127.0.0.1:8081"
-
+// Run runs the REST API server.
 func Run(addr string, st Storage) error {
 	if addr == "" {
 		addr = defaultAddress
@@ -48,354 +44,129 @@ func Run(addr string, st Storage) error {
 	n := getNegroniHandler(router)
 
 	log.Printf("API listening on %s...", addr)
-	if err := http.ListenAndServe(addr, n); err != nil {
-		return err
-	}
-	return nil
+	return http.ListenAndServe(addr, n)
 }
 
-func getNegroniHandler(router http.Handler) http.Handler {
-	rec := negroni.NewRecovery()
-	rec.PrintStack = false
-
-	n := negroni.New()
-	n.Use(rec)
-	n.Use(negroni.NewLogger())
-	n.UseHandler(router)
-	return n
-}
-
+// addMiddlewaresToRouter adds all middlewares into router.
 func addMiddlewaresToRouter(router *mux.Router, st Storage) {
-	router.Use(authorizationMiddleware)
-	router.Use(gettingDrawingMiddleware(st))
-	router.Use(gettingPointMiddleware)
+	router.Use(getAuthorizationMiddleware(st))
 	router.Use(mux.CORSMethodMiddleware(router))
 }
 
+// addHandlersToRouter adds all REST API handlers into router.
 func addHandlersToRouter(router *mux.Router, st Storage) {
 	router.HandleFunc("/login", loginHandler(st)).Methods(http.MethodPost)
 
 	path := "/users"
-	router.HandleFunc(path, getUsersListHandler(st)).Methods(http.MethodGet)
-	router.HandleFunc(path, getUserCreatingHandler(st)).Methods(http.MethodPost)
+	router.HandleFunc(path, usersListHandler).Methods(http.MethodGet)
+	router.HandleFunc(path, userCreatingHandler).Methods(http.MethodPost)
 
 	path = fmt.Sprintf("/users/{%s:[0-9]+}", pathVarUserID)
-	router.HandleFunc(path, getUserGettingHandler(st)).Methods(http.MethodGet)
-	router.HandleFunc(path, getUserUpdatingHandler(st)).Methods(http.MethodPut)
-	router.HandleFunc(path, getUserRemovingHandler(st)).Methods(http.MethodDelete)
+	router.HandleFunc(path, userGettingHandler).Methods(http.MethodGet)
+	router.HandleFunc(path, userUpdatingHandler).Methods(http.MethodPut)
+	router.HandleFunc(path, userDeletingHandler).Methods(http.MethodDelete)
+
+	path = fmt.Sprintf("/users/{%s:[0-9]+}/permissions", pathVarUserID)
+	router.HandleFunc(path, permissionsOfUserGettingHandler).Methods(http.MethodGet)
+	router.HandleFunc(path, permissionCreatingHandler).Methods(http.MethodPost)
+
+	path = fmt.Sprintf("/users/{%s:[0-9]+}/permissions/drawings/{%s:[0-9]+}", pathVarUserID, pathVarDrawingID)
+	router.HandleFunc(path, permissionGetterAndDeletingHandler).Methods(http.MethodGet)
+	router.HandleFunc(path, permissionGetterAndDeletingHandler).Methods(http.MethodDelete)
 
 	path = "/drawings"
-	router.HandleFunc(path, getDrawingsListGettingHandler(st)).Methods(http.MethodGet)
-	router.HandleFunc(path, getDrawingCreatingHandler(st)).Methods(http.MethodPost)
+	router.HandleFunc(path, drawingsListGettingHandler).Methods(http.MethodGet)
+	router.HandleFunc(path, drawingCreatingHandler).Methods(http.MethodPost)
 
 	path = fmt.Sprintf("/drawings/{%s:[0-9]+}", pathVarDrawingID)
 	router.HandleFunc(path, drawingGettingHandler).Methods(http.MethodGet)
-	router.HandleFunc(path, getDrawingDeletingHandler(st)).Methods(http.MethodDelete)
+	router.HandleFunc(path, drawingDeletingHandler).Methods(http.MethodDelete)
 
 	path = fmt.Sprintf("/drawings/{%s:[0-9]+}/image", pathVarDrawingID)
 	router.HandleFunc(path, drawingImageHandler).Methods(http.MethodGet)
 
+	path = fmt.Sprintf("/drawings/{%s:[0-9]+}/permissions", pathVarDrawingID)
+	router.HandleFunc(path, permissionsOfDrawingGettingHandler).Methods(http.MethodGet)
+	router.HandleFunc(path, permissionCreatingHandler).Methods(http.MethodPost)
+
+	path = fmt.Sprintf("/drawings/{%s:[0-9]+}/permissions/users/{%s:[0-9]+}", pathVarDrawingID, pathVarUserID)
+	router.HandleFunc(path, permissionGetterAndDeletingHandler).Methods(http.MethodGet)
+	router.HandleFunc(path, permissionGetterAndDeletingHandler).Methods(http.MethodDelete)
+
 	path = fmt.Sprintf("/drawings/{%s:[0-9]+}/points", pathVarDrawingID)
-	router.HandleFunc(path, drawingPointsGettingHandler).Methods(http.MethodGet)
-	router.HandleFunc(path, getDrawingPointsAddingHandler(st)).Methods(http.MethodPost)
+	router.HandleFunc(path, drawingPointsListGettingHandler).Methods(http.MethodGet)
+	router.HandleFunc(path, drawingPointsAddingHandler).Methods(http.MethodPost)
 
 	path = fmt.Sprintf("/drawings/{%s:[0-9]+}/points/{%s:[0-9]+}", pathVarDrawingID, pathVarPointNumber)
 	router.HandleFunc(path, drawingPointGettingHandler).Methods(http.MethodGet)
-	router.HandleFunc(path, getDrawingPointUpdatingHandler(st)).Methods(http.MethodPut)
-	router.HandleFunc(path, getDrawingPointDeletingHandler(st)).Methods(http.MethodDelete)
+	router.HandleFunc(path, drawingPointUpdatingHandler).Methods(http.MethodPut)
+	router.HandleFunc(path, drawingPointDeletingHandler).Methods(http.MethodDelete)
 }
 
-// ===========
-// Middlewares
-// ===========
-
-func authorizationMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		var (
-			onlyAdminURLReg    = regexp.MustCompile(`/users[a-zA-Z0-9/]*`)
-			withoutLoginURLReg = regexp.MustCompile(`/login`)
-		)
-
-		if !withoutLoginURLReg.MatchString(req.URL.Path) {
-			auth := ""
-			if auth = req.Header.Get("Authorization"); auth == "" || auth[:6] != "Bearer" {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
-			}
-			userClaims, err := readUserJWTToken(auth[7:], SigningSecret)
-			if err != nil {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
-			}
-			ctx := context.WithValue(req.Context(), ctxKeyUser, userClaims.UserOpen)
-			req = req.WithContext(ctx)
-			if ok := onlyAdminURLReg.MatchString(req.URL.Path); ok && userClaims.Permission != AdminPermission {
-				http.Error(w, "Forbidden", http.StatusForbidden)
-				return
-			}
-		}
-		next.ServeHTTP(w, req)
-	})
-}
-
-func gettingDrawingMiddleware(getter DrawingGetter) mux.MiddlewareFunc {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			var drawingPathReg = regexp.MustCompile(`/drawings/[0-9]+.*`)
-
-			if drawingPathReg.MatchString(req.URL.Path) {
-				var err error
-				user, drawingID, drawing := new(UserOpen), uint(0), new(Drawing)
-				if err := readCtxValue(req.Context(), ctxKeyUser, user); writeError(w, err) {
-					return
-				}
-				if err := parsePathValue(mux.Vars(req), pathVarDrawingID, &drawingID); writeError(w, err) {
-					return
-				}
-
-				drawing, err = getter.GetDrawingOfUser(user.ID, drawingID)
-				if writeError(w, err) {
-					return
-				}
-				ctx := context.WithValue(req.Context(), ctxKeyDrawing, drawing)
-				req = req.WithContext(ctx)
-			}
-			next.ServeHTTP(w, req)
-		})
+// drawingCreatingHandler handles creating one drawing by drawingPostPutRequestData body.
+// Handles: POST /drawings
+func drawingCreatingHandler(w http.ResponseWriter, req *http.Request) {
+	var storage UserStorage
+	if storage = getUserStorageOrWriteError(w, req); storage == nil {
+		return
 	}
-}
+	user := storage.GetCurrentUser()
 
-func gettingPointMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		var pointPathReg = regexp.MustCompile(`/drawings/[0-9]+/points/[0-9]+`)
-
-		if pointPathReg.MatchString(req.URL.Path) {
-			pointIndex, drawing := 0, new(Drawing)
-			if err := readCtxValue(req.Context(), ctxKeyDrawing, drawing); writeError(w, err) {
-				return
-			}
-			if err := parsePathValue(mux.Vars(req), pathVarPointNumber, &pointIndex); writeError(w, err) {
-				return
-			}
-			if pointIndex > drawing.Len() || pointIndex < 1 {
-				_ = writeError(w, ErrPointNotFound)
-				return
-			}
-			pointIndex--
-			ctx := context.WithValue(req.Context(), ctxKeyPointIndex, pointIndex)
-			ctx = context.WithValue(ctx, ctxKeyPoint, drawing.Points[pointIndex])
-			req = req.WithContext(ctx)
-		}
-		next.ServeHTTP(w, req)
-	})
-}
-
-// ======
-// /login
-// ======
-
-func loginHandler(getter UserGetter) http.HandlerFunc {
-	return func(w http.ResponseWriter, req *http.Request) {
-		var userAuth User
-		if err := unmarshalReaderContent(req.Body, &userAuth); writeError(w, err) {
-			return
-		}
-		if userAuth.Login == "" || userAuth.Password == "" {
-			http.Error(w, "Bad Request: Login or Password weren't specified", http.StatusBadRequest)
-			return
-		}
-		user, err := getter.GetUser(userAuth.Login, userAuth.Password)
-		if writeError(w, err) {
-			return
-		}
-
-		token, err := createUserJWTToken(user.UserOpen, SigningSecret, time.Hour*24)
-		if writeError(w, err) {
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprintf(w, `{"token":"%s"}`, token)
+	var requestData drawingPostPutRequestData
+	if err := unmarshalReaderContent(req.Body, &requestData); writeError(w, err) {
+		return
 	}
-}
-
-// ======
-// /users
-// ======
-
-func getUsersListHandler(getter UsersListGetter) http.HandlerFunc {
-	return func(w http.ResponseWriter, req *http.Request) {
-		amount, err := getter.UsersAmount()
-		if writeError(w, err) {
-			return
-		}
-		stat, err := readListStatData(req.URL.Query(), amount)
-		if writeError(w, err) {
-			return
-		}
-
-		respData := UsersListResponseData{ListStatData: *stat}
-		respData.Users, err = getter.GetUsersList(respData.Page, respData.PageLimit)
-		if writeError(w, err) {
-			return
-		}
-
-		marshalAndWrite(w, &respData)
+	if requestData.Name == "" {
+		http.Error(w, "Bad Request: Wrong JSON body", http.StatusBadRequest)
+		return
 	}
-}
+	drawing := Drawing{DrawingBasic: requestData.DrawingBasic, GGDrawing: *raster.NewEmptyGGDrawing()}
+	drawing.Measures = requestData.Measures.ToFigureMeasures(drawing.Measures)
 
-func getUserCreatingHandler(creator UserCreator) http.HandlerFunc {
-	return func(w http.ResponseWriter, req *http.Request) {
-		var user User
-		if err := unmarshalReaderContent(req.Body, &user); writeError(w, err) {
-			return
-		}
-		if user.Login == "" || user.Password == "" {
-			_ = writeError(w, ErrBadLoginOrPassword)
-			return
-		}
-		if user.Permission == 0 {
-			user.Permission = UserPermission
-		}
-		if err := creator.CreateUsers(&user); writeError(w, err) {
-			return
-		}
-		w.Header().Add("Location", fmt.Sprintf("/users/%d", user.ID))
-		w.WriteHeader(http.StatusCreated)
-	}
-}
-
-// ===========
-// /users/{id}
-// ===========
-
-func getUserGettingHandler(getter UserGetter) http.HandlerFunc {
-	return func(w http.ResponseWriter, req *http.Request) {
-		userID := uint(0)
-		if err := parsePathValue(mux.Vars(req), pathVarUserID, &userID); writeError(w, err) {
-			return
-		}
-
-		user, err := getter.GetUserByID(userID)
-		if writeError(w, err) {
-			return
-		}
-
-		marshalAndWrite(w, &user.UserOpen)
-	}
-}
-
-func getUserRemovingHandler(remover UserRemover) http.HandlerFunc {
-	return func(w http.ResponseWriter, req *http.Request) {
-		userID := uint(0)
-		if err := parsePathValue(mux.Vars(req), pathVarUserID, &userID); writeError(w, err) {
-			return
-		}
-
-		if err := remover.RemoveUser(userID); writeError(w, err) {
-			return
-		}
-	}
-}
-
-func getUserUpdatingHandler(updater UserUpdater) http.HandlerFunc {
-	return func(w http.ResponseWriter, req *http.Request) {
-		userID := uint(0)
-		if err := parsePathValue(mux.Vars(req), pathVarUserID, &userID); writeError(w, err) {
-			return
-		}
-
-		var user User
-		if err := unmarshalReaderContent(req.Body, &user); writeError(w, err) {
-			return
-		}
-
-		user.ID = userID
-		if err := updater.UpdateUser(&user); writeError(w, err) {
-			return
-		}
-	}
-}
-
-// =========
-// /drawings
-// =========
-
-func getDrawingsListGettingHandler(getter DrawingsListGetter) http.HandlerFunc {
-	return func(w http.ResponseWriter, req *http.Request) {
-		user := new(UserOpen)
-		if err := readCtxValue(req.Context(), ctxKeyUser, user); writeError(w, err) {
-			return
-		}
-
-		amount, err := getter.DrawingsAmount(user.ID)
-		if writeError(w, err) {
-			return
-		}
-		stat, err := readListStatData(req.URL.Query(), amount)
-		if writeError(w, err) {
-			return
-		}
-
-		respData := DrawingsListResponseData{Drawings: make([]*DrawingOpen, 0), ListStatData: *stat}
-		if amount > 0 {
-			respData.Drawings, err = getter.GetDrawingsList(user.ID, respData.Page, respData.PageLimit)
-			if writeError(w, err) {
-				return
-			}
-		}
-
-		marshalAndWrite(w, &respData)
-	}
-}
-
-func getDrawingCreatingHandler(creator DrawingCreator) http.HandlerFunc {
-	return func(w http.ResponseWriter, req *http.Request) {
-		user := new(UserOpen)
-		if err := readCtxValue(req.Context(), ctxKeyUser, user); writeError(w, err) {
-			return
-		}
-
-		var requestData DrawingPostPutRequestData
-		if err := unmarshalReaderContent(req.Body, &requestData); writeError(w, err) {
-			return
-		}
-		if requestData.Name == "" {
-			http.Error(w, "Bad Request: Wrong JSON body", http.StatusBadRequest)
-			return
-		}
-		drawing := Drawing{DrawingOpen: requestData.DrawingOpen, GGDrawing: *raster.NewEmptyGGDrawing()}
-		drawing.Measures = requestData.Measures.ToFigureMeasures(drawing.Measures)
-
-		if err := drawing.AddPoints(getPointsFromRequestPoint(requestData.Points...)...); writeError(w, err) {
-			return
-		}
-
-		if err := creator.CreateDrawings(user.ID, &drawing); err != nil {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			log.Print(err)
-			return
-		}
-
-		w.Header().Add("Location", fmt.Sprintf("/drawings/%d", drawing.ID))
-		http.Error(w, "", http.StatusCreated)
-	}
-}
-
-// ==============
-// /drawings/{id}
-// =============
-
-func drawingGettingHandler(w http.ResponseWriter, req *http.Request) {
-	drawing := new(Drawing)
-	if err := readCtxValue(req.Context(), ctxKeyDrawing, drawing); writeError(w, err) {
+	if err := drawing.AddPoints(getPointsFromRequestPoint(requestData.Points...)...); writeError(w, err) {
 		return
 	}
 
-	respData := DrawingGetResponseData{
-		DrawingOpen: drawing.DrawingOpen,
-		Points:      drawing.GetPoints(),
-		DrawingCalculatingData: DrawingCalculatingData{
+	if err := storage.CreateDrawings(user.ID, &drawing); err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		log.Print(err)
+		return
+	}
+
+	w.Header().Add("Location", fmt.Sprintf("/drawings/%d", drawing.ID))
+	http.Error(w, "", http.StatusCreated)
+}
+
+// drawingDeletingHandler handles deleting one drawing by its ID.
+// Handles: DELETE /drawings/{id}
+func drawingDeletingHandler(w http.ResponseWriter, req *http.Request) {
+	var storage UserStorage
+	if storage = getUserStorageOrWriteError(w, req); storage == nil {
+		return
+	}
+
+	drawingID := uint(0)
+	if err := parsePathValue(mux.Vars(req), pathVarDrawingID, &drawingID); writeError(w, err) {
+		return
+	}
+
+	if err := storage.RemoveDrawing(drawingID); writeError(w, err) {
+		return
+	}
+}
+
+// drawingGettingHandler handles getting one drawing by ID and presents it as drawingGetResponseData type.
+// Handles: GET /drawings/{id}
+func drawingGettingHandler(w http.ResponseWriter, req *http.Request) {
+	drawing, _ := getDrawingByRequestOrWriteError(w, req)
+	if drawing == nil {
+		return
+	}
+
+	respData := drawingGetResponseData{
+		DrawingBasic: drawing.DrawingBasic,
+		Points:       drawing.GetPoints(),
+		drawingCalculatedData: drawingCalculatedData{
 			Area:        drawing.Area(),
 			Perimeter:   drawing.Perimeter(),
 			PointsCount: drawing.Len(),
@@ -408,29 +179,11 @@ func drawingGettingHandler(w http.ResponseWriter, req *http.Request) {
 	marshalAndWrite(w, &respData)
 }
 
-func getDrawingDeletingHandler(remover DrawingRemover) http.HandlerFunc {
-	return func(w http.ResponseWriter, req *http.Request) {
-		user, drawingID := new(UserOpen), uint(0)
-		if err := readCtxValue(req.Context(), ctxKeyUser, user); writeError(w, err) {
-			return
-		}
-		if err := parsePathValue(mux.Vars(req), pathVarDrawingID, &drawingID); writeError(w, err) {
-			return
-		}
-
-		if err := remover.RemoveDrawingOfUser(user.ID, drawingID); writeError(w, err) {
-			return
-		}
-	}
-}
-
-// ====================
-// /drawings/{id}/image
-// ====================
-
+// drawingImageHandler handle getting an image of the drawing by its ID.
+// Handles: GET /drawings/{id}/image
 func drawingImageHandler(w http.ResponseWriter, req *http.Request) {
-	drawing := new(Drawing)
-	if err := readCtxValue(req.Context(), ctxKeyDrawing, drawing); writeError(w, err) {
+	drawing, _ := getDrawingByRequestOrWriteError(w, req)
+	if drawing == nil {
 		return
 	}
 
@@ -449,74 +202,111 @@ func drawingImageHandler(w http.ResponseWriter, req *http.Request) {
 	_, _ = w.Write(imageBytes)
 }
 
-// =====================
-// /drawings/{id}/points
-// =====================
+// drawingsListGettingHandler handles getting a list of drawings the current user
+// and presents it as drawingsListResponseData.
+// Handles: GET /drawings
+func drawingsListGettingHandler(w http.ResponseWriter, req *http.Request) {
+	var storage UserStorage
+	if storage = getUserStorageOrWriteError(w, req); storage == nil {
+		return
+	}
+	user := storage.GetCurrentUser()
 
-func drawingPointsGettingHandler(w http.ResponseWriter, req *http.Request) {
-	drawing := new(Drawing)
-	if err := readCtxValue(req.Context(), ctxKeyDrawing, drawing); writeError(w, err) {
+	amount, err := storage.DrawingsAmount(user.ID)
+	if writeError(w, err) {
+		return
+	}
+	stat, err := readListStatData(req.URL.Query(), amount)
+	if writeError(w, err) {
 		return
 	}
 
-	precision, measure := 2, drawing.Measures.Length
-	if err := readLengthMeasureAndPrecision(req.URL.Query(), &measure, &precision); writeError(w, err) {
-		return
-	}
-	respData := DrawingPointsGettingResponseData{
-		DrawingOpen: drawing.DrawingOpen,
-		Points:      drawing.GetPointsWithParams(measure, precision),
-		Measure:     value.NameOfLengthMeasure(measure),
+	respData := drawingsListResponseData{Drawings: make([]*DrawingBasic, 0), listStatData: *stat}
+	if amount > 0 {
+		respData.Drawings, err = storage.GetDrawingsList(user.ID, respData.Page, respData.PageLimit)
+		if writeError(w, err) {
+			return
+		}
 	}
 
 	marshalAndWrite(w, &respData)
 }
 
-func getDrawingPointsAddingHandler(updater DrawingUpdater) http.HandlerFunc {
-	return func(w http.ResponseWriter, req *http.Request) {
-		drawing := new(Drawing)
-		if err := readCtxValue(req.Context(), ctxKeyDrawing, drawing); writeError(w, err) {
-			return
-		}
+// drawingPointsAddingHandler handles adding new points into the drawing by its ID and pointsCalculatingWithMeasures body.
+// Handles: POST /drawings/{id}/points
+func drawingPointsAddingHandler(w http.ResponseWriter, req *http.Request) {
+	drawing, _ := getDrawingByRequestOrWriteError(w, req)
+	if drawing == nil {
+		return
+	}
 
-		var reqData PointsCalculatingWithMeasures
-		if err := unmarshalReaderContent(req.Body, &reqData); writeError(w, err) {
-			return
-		}
+	var reqData pointsCalculatingWithMeasures
+	if err := unmarshalReaderContent(req.Body, &reqData); writeError(w, err) {
+		return
+	}
 
-		dmCopy := drawing.Measures
-		drawing.Measures = reqData.Measures.ToFigureMeasures(drawing.Measures)
+	dmCopy := drawing.Measures
+	drawing.Measures = reqData.Measures.ToFigureMeasures(drawing.Measures)
 
-		if err := drawing.AddPoints(getPointsFromRequestPoint(reqData.Points...)...); writeError(w, err) {
-			return
-		}
+	if err := drawing.AddPoints(getPointsFromRequestPoint(reqData.Points...)...); writeError(w, err) {
+		return
+	}
 
-		respData := DrawingPointsGettingResponseData{
-			DrawingOpen: drawing.DrawingOpen,
-			Points:      drawing.GetPointsWithParams(drawing.Measures.Length, 2),
-			Measure:     reqData.Measures.Length,
-		}
+	respData := drawingPointsGettingResponseData{
+		DrawingBasic: drawing.DrawingBasic,
+		Points:       drawing.GetPointsWithParams(drawing.Measures.Length, 2),
+		Measure:      reqData.Measures.Length,
+	}
 
-		drawing.Measures = dmCopy
+	drawing.Measures = dmCopy
 
-		if err := updater.UpdateDrawing(drawing); writeError(w, err) {
-			return
-		}
+	var storage UserStorage
+	if storage = getUserStorageOrWriteError(w, req); storage == nil {
+		return
+	}
 
-		marshalAndWrite(w, &respData)
+	if err := storage.UpdateDrawing(drawing); writeError(w, err) {
+		return
+	}
+
+	marshalAndWrite(w, &respData)
+}
+
+// drawingPointDeletingHandler handles deleting one point from the drawing by drawing ID and a number of the point.
+// The first point of the drawing has a number one.
+// Handles: DELETE /drawings/{id}/points/{number}
+func drawingPointDeletingHandler(w http.ResponseWriter, req *http.Request) {
+	drawing, _ := getDrawingByRequestOrWriteError(w, req)
+	if drawing == nil {
+		return
+	}
+	pointIndex, ok := getPointIndexByRequestOrWriteError(w, req, drawing)
+	if !ok {
+		return
+	}
+
+	drawing.Points = append(drawing.Points[:pointIndex], drawing.Points[pointIndex+1:]...)
+
+	var storage UserStorage
+	if storage = getUserStorageOrWriteError(w, req); storage == nil {
+		return
+	}
+
+	if err := storage.UpdateDrawing(drawing); writeError(w, err) {
+		return
 	}
 }
 
-// =========================
-// /drawings/{id}/points/{n}
-// =========================
-
+// drawingPointGettingHandler handles getting one point of a drawing by drawing ID and a number of the point.
+// The first point of the drawing has a number one.
+// Handles: GET /drawings/{id}/points/{number}
 func drawingPointGettingHandler(w http.ResponseWriter, req *http.Request) {
-	pointIndex, drawing := 0, new(Drawing)
-	if err := readCtxValue(req.Context(), ctxKeyDrawing, drawing); writeError(w, err) {
+	drawing, _ := getDrawingByRequestOrWriteError(w, req)
+	if drawing == nil {
 		return
 	}
-	if err := readCtxValue(req.Context(), ctxKeyPointIndex, &pointIndex); writeError(w, err) {
+	pointIndex, ok := getPointIndexByRequestOrWriteError(w, req, drawing)
+	if !ok {
 		return
 	}
 
@@ -525,58 +315,339 @@ func drawingPointGettingHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	point := drawing.Points[pointIndex]
-	marshalAndWrite(w, PointWithMeasure{
+	marshalAndWrite(w, pointWithMeasure{
 		X:       value.ConvertFromOneRound(measure, point.X, precision),
 		Y:       value.ConvertFromOneRound(measure, point.Y, precision),
 		Measure: value.NameOfLengthMeasure(measure),
 	})
 }
 
-func getDrawingPointDeletingHandler(updater DrawingUpdater) http.HandlerFunc {
-	return func(w http.ResponseWriter, req *http.Request) {
-		pointIndex, drawing := 0, new(Drawing)
-		if err := readCtxValue(req.Context(), ctxKeyDrawing, drawing); writeError(w, err) {
-			return
-		}
-		if err := readCtxValue(req.Context(), ctxKeyPointIndex, &pointIndex); writeError(w, err) {
-			return
-		}
+// drawingPointsListGettingHandler handles getting points of the drawing by its ID.
+// Handles: GET /drawings/{id}/points
+func drawingPointsListGettingHandler(w http.ResponseWriter, req *http.Request) {
+	drawing, _ := getDrawingByRequestOrWriteError(w, req)
+	if drawing == nil {
+		return
+	}
 
-		drawing.Points = append(drawing.Points[:pointIndex], drawing.Points[pointIndex+1:]...)
+	precision, measure := 2, drawing.Measures.Length
+	if err := readLengthMeasureAndPrecision(req.URL.Query(), &measure, &precision); writeError(w, err) {
+		return
+	}
+	respData := drawingPointsGettingResponseData{
+		DrawingBasic: drawing.DrawingBasic,
+		Points:       drawing.GetPointsWithParams(measure, precision),
+		Measure:      value.NameOfLengthMeasure(measure),
+	}
 
-		if err := updater.UpdateDrawing(drawing); writeError(w, err) {
-			return
-		}
+	marshalAndWrite(w, &respData)
+}
+
+// drawingPointUpdatingHandler updates a point of the drawing by drawing ID, a number of the point and
+// pointCalculatingWithMeasures body.
+// Handles: PUT /drawings/{id}/points/{number}
+func drawingPointUpdatingHandler(w http.ResponseWriter, req *http.Request) {
+	drawing, _ := getDrawingByRequestOrWriteError(w, req)
+	if drawing == nil {
+		return
+	}
+	pointIndex, ok := getPointIndexByRequestOrWriteError(w, req, drawing)
+	if !ok {
+		return
+	}
+
+	var pointWithMeasure pointCalculatingWithMeasures
+	if err := unmarshalReaderContent(req.Body, &pointWithMeasure); writeError(w, err) {
+		return
+	}
+
+	drawingMeasures := drawing.Measures
+	drawing.Measures = pointWithMeasure.Measures.ToFigureMeasures(drawing.Measures)
+
+	point := getPointsFromRequestPoint(&pointWithMeasure.Point)[0]
+	if err := drawing.SetPoint(pointIndex, point); writeError(w, err) {
+		return
+	}
+
+	drawing.Measures = drawingMeasures
+
+	var storage UserStorage
+	if storage = getUserStorageOrWriteError(w, req); storage == nil {
+		return
+	}
+
+	if err := storage.UpdateDrawing(drawing); writeError(w, err) {
+		return
 	}
 }
 
-func getDrawingPointUpdatingHandler(updater DrawingUpdater) http.HandlerFunc {
+// getAuthorizationMiddleware returns middleware authorization handler.
+// Handles: Middleware
+func getAuthorizationMiddleware(st Storage) mux.MiddlewareFunc {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			var withoutLoginURLReg = regexp.MustCompile(`/login`)
+
+			if !withoutLoginURLReg.MatchString(req.URL.Path) {
+				auth := ""
+				if auth = req.Header.Get("Authorization"); auth == "" || auth[:6] != "Bearer" {
+					http.Error(w, "Unauthorized", http.StatusUnauthorized)
+					return
+				}
+				userClaims, err := readUserJWTToken(auth[7:], SigningSecret)
+				if err != nil {
+					http.Error(w, "Unauthorized", http.StatusUnauthorized)
+					return
+				}
+				userSt, err := st.GetUserStorage(&userClaims.UserBasic)
+				if writeError(w, err) {
+					return
+				}
+				ctx := context.WithValue(req.Context(), ctxKeyUserStorage, userSt)
+				req = req.WithContext(ctx)
+			}
+			next.ServeHTTP(w, req)
+		})
+	}
+}
+
+func getNegroniHandler(router http.Handler) http.Handler {
+	rec := negroni.NewRecovery()
+	rec.PrintStack = false
+
+	n := negroni.New()
+	n.Use(rec)
+	n.Use(negroni.NewLogger())
+	n.UseHandler(router)
+	return n
+}
+
+// loginHandler returns authentication handler.
+// Handles: POST /login
+func loginHandler(getter UserGetter) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
-		pointIndex, drawing := 0, new(Drawing)
-		if err := readCtxValue(req.Context(), ctxKeyDrawing, drawing); writeError(w, err) {
+		var userAuth UserConfident
+		if err := unmarshalReaderContent(req.Body, &userAuth); writeError(w, err) {
 			return
 		}
-		if err := readCtxValue(req.Context(), ctxKeyPointIndex, &pointIndex); writeError(w, err) {
+		if userAuth.Login == "" || userAuth.Password == "" {
+			http.Error(w, "Bad Request: Login or Password weren't specified", http.StatusBadRequest)
 			return
 		}
-
-		var pointWithMeasure PointCalculatingWithMeasures
-		if err := unmarshalReaderContent(req.Body, &pointWithMeasure); writeError(w, err) {
-			return
-		}
-
-		drawingMeasures := drawing.Measures
-		drawing.Measures = pointWithMeasure.Measures.ToFigureMeasures(drawing.Measures)
-
-		point := getPointsFromRequestPoint(&pointWithMeasure.Point)[0]
-		if err := drawing.SetPoint(pointIndex, point); writeError(w, err) {
+		user, err := getter.GetUser(userAuth.Login, userAuth.Password)
+		if writeError(w, err) {
 			return
 		}
 
-		drawing.Measures = drawingMeasures
+		token, err := createUserJWTToken(user.UserBasic, SigningSecret, time.Hour*24)
+		if writeError(w, err) {
+			return
+		}
 
-		if err := updater.UpdateDrawing(drawing); writeError(w, err) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"token":"%s"}`, token)
+	}
+}
+
+// permissionCreatingHandler handles adding a drawing permission by user ID or drawing ID, and
+// drawingPermissionCreating body.
+// Handles: POST /drawings/{id}/permissions, POST /users/{id}/permissions
+func permissionCreatingHandler(w http.ResponseWriter, req *http.Request) {
+	storage := getUserStorageOrWriteError(w, req)
+	body := new(drawingPermissionCreating)
+	if err := unmarshalReaderContent(req.Body, body); writeError(w, err) {
+		return
+	}
+	if body.UserID == 0 {
+		if err := parsePathValue(mux.Vars(req), pathVarUserID, &body.UserID); writeError(w, err) {
 			return
 		}
 	}
+	if body.DrawingID == 0 {
+		if err := parsePathValue(mux.Vars(req), pathVarDrawingID, &body.DrawingID); writeError(w, err) {
+			return
+		}
+	}
+	perm := DrawingPermission{
+		User:    &UserBasic{ID: body.UserID},
+		Drawing: &DrawingBasic{ID: body.DrawingID},
+		Get:     body.Get,
+		Change:  body.Change,
+		Delete:  body.Delete,
+		Share:   body.Share,
+	}
+	if err := storage.CreateDrawingPermission(&perm); writeError(w, err) {
+		return
+	}
+	w.Header().Set("Location", fmt.Sprintf("/drawings/%d/permissions/users/%d", body.DrawingID, body.UserID))
+	w.WriteHeader(http.StatusCreated)
+}
+
+// permissionGetterAndDeletingHandler handles getting or deleting one drawing permissions by user ID and drawing ID.
+// Handles: GET|DELETE /users/{id}/permissions/drawings/{id}, GET|DELETE /drawings/{id}/permissions/users/{id}
+func permissionGetterAndDeletingHandler(w http.ResponseWriter, req *http.Request) {
+	storage := getUserStorageOrWriteError(w, req)
+	var drawingID, userID uint
+	if err := parsePathValue(mux.Vars(req), pathVarDrawingID, &drawingID); writeError(w, err) {
+		return
+	}
+	if err := parsePathValue(mux.Vars(req), pathVarUserID, &userID); writeError(w, err) {
+		return
+	}
+	// GET Method
+	if req.Method == http.MethodGet {
+		perm, err := storage.GetDrawingPermission(userID, drawingID)
+		if writeError(w, err) {
+			return
+		}
+		marshalAndWrite(w, perm)
+		return
+	}
+	// DELETE Method
+	err := storage.RemoveDrawingPermission(userID, drawingID)
+	_ = writeError(w, err)
+}
+
+// permissionsOfUserGettingHandler handles getting drawing permissions of a user by ID.
+// Handles: GET /users/{id}/permissions
+func permissionsOfUserGettingHandler(w http.ResponseWriter, req *http.Request) {
+	storage := getUserStorageOrWriteError(w, req)
+	userID := uint(0)
+	if err := parsePathValue(mux.Vars(req), pathVarUserID, &userID); writeError(w, err) {
+		return
+	}
+	permissions, err := storage.GetDrawingsPermissionsOfUser(userID)
+	if writeError(w, err) {
+		return
+	}
+	marshalAndWrite(w, &permissions)
+}
+
+// permissionsOfDrawingGettingHandler handles getting drawing permissions of a drawing by its ID.
+// Handles: GET /drawings/{id}/permissions
+func permissionsOfDrawingGettingHandler(w http.ResponseWriter, req *http.Request) {
+	storage := getUserStorageOrWriteError(w, req)
+	drawingID := uint(0)
+	if err := parsePathValue(mux.Vars(req), pathVarDrawingID, &drawingID); writeError(w, err) {
+		return
+	}
+	permissions, err := storage.GetDrawingsPermissionsOfDrawing(drawingID)
+	if writeError(w, err) {
+		return
+	}
+	marshalAndWrite(w, &permissions)
+}
+
+// userCreatingHandler handles the user creating by UserConfident body.
+// Handles: POST /uses
+func userCreatingHandler(w http.ResponseWriter, req *http.Request) {
+	var storage UserStorage
+	if storage = getUserStorageOrWriteError(w, req); storage == nil {
+		return
+	}
+
+	var user UserConfident
+	if err := unmarshalReaderContent(req.Body, &user); writeError(w, err) {
+		return
+	}
+	if user.Login == "" || user.Password == "" {
+		_ = writeError(w, ErrBadLoginOrPassword)
+		return
+	}
+	if user.Role == 0 {
+		user.Role = RoleUser
+	}
+	if err := storage.CreateUsers(&user); writeError(w, err) {
+		return
+	}
+	w.Header().Add("Location", fmt.Sprintf("/users/%d", user.ID))
+	w.WriteHeader(http.StatusCreated)
+}
+
+// userDeletingHandler handles removing of one user by ID.
+// Handles: DELETE /users/{id}
+func userDeletingHandler(w http.ResponseWriter, req *http.Request) {
+	var storage UserStorage
+	if storage = getUserStorageOrWriteError(w, req); storage == nil {
+		return
+	}
+
+	userID := uint(0)
+	if err := parsePathValue(mux.Vars(req), pathVarUserID, &userID); writeError(w, err) {
+		return
+	}
+
+	if err := storage.RemoveUser(userID); writeError(w, err) {
+		return
+	}
+}
+
+// userGettingHandler handles getting of one user by ID.
+// Handles: GET /user/{id}
+func userGettingHandler(w http.ResponseWriter, req *http.Request) {
+	var storage UserStorage
+	if storage = getUserStorageOrWriteError(w, req); storage == nil {
+		return
+	}
+
+	userID := uint(0)
+	if err := parsePathValue(mux.Vars(req), pathVarUserID, &userID); writeError(w, err) {
+		return
+	}
+
+	user, err := storage.GetUserByID(userID)
+	if writeError(w, err) {
+		return
+	}
+
+	marshalAndWrite(w, &user.UserBasic)
+}
+
+// usersListHandler handles request of getting users list.
+// Handles: GET /users
+func usersListHandler(w http.ResponseWriter, req *http.Request) {
+	var storage UserStorage
+	if storage = getUserStorageOrWriteError(w, req); storage == nil {
+		return
+	}
+
+	amount, err := storage.UsersAmount()
+	if writeError(w, err) {
+		return
+	}
+	stat, err := readListStatData(req.URL.Query(), amount)
+	if writeError(w, err) {
+		return
+	}
+
+	respData := usersListResponseData{listStatData: *stat}
+	respData.Users, err = storage.GetUsersList(respData.Page, respData.PageLimit)
+	if writeError(w, err) {
+		return
+	}
+
+	marshalAndWrite(w, &respData)
+}
+
+// userUpdatingHandler handles updating of one user by ID and UserConfident body.
+// Handles: PUT /users/{id}
+func userUpdatingHandler(w http.ResponseWriter, req *http.Request) {
+	var storage UserStorage
+	if storage = getUserStorageOrWriteError(w, req); storage == nil {
+		return
+	}
+
+	userID := uint(0)
+	if err := parsePathValue(mux.Vars(req), pathVarUserID, &userID); writeError(w, err) {
+		return
+	}
+
+	var user UserConfident
+	if err := unmarshalReaderContent(req.Body, &user); writeError(w, err) {
+		return
+	}
+
+	user.ID = userID
+	err := storage.UpdateUser(&user)
+	_ = writeError(w, err)
 }

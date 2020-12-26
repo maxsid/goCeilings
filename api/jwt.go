@@ -10,11 +10,11 @@ var SigningSecret = "xjh7VdjjGgC38XzDvHquQdc3Z5Gs2CNdW6kk3rqPuUNp2vnRG3rXbv33mKb
 
 type UserJWTClaims struct {
 	jwt.StandardClaims
-	UserOpen
+	UserBasic
 }
 
-func createUserJWTToken(user UserOpen, secret string, timeout time.Duration) (string, error) {
-	claims := UserJWTClaims{UserOpen: user}
+func createUserJWTToken(user UserBasic, secret string, timeout time.Duration) (string, error) {
+	claims := UserJWTClaims{UserBasic: user}
 	claims.IssuedAt = time.Now().Unix()
 	claims.ExpiresAt = time.Now().Add(timeout).Unix()
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

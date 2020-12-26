@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/maxsid/goCeilings/drawing/raster"
 	"github.com/maxsid/goCeilings/figure"
@@ -22,25 +23,114 @@ type ErrorSimulation struct {
 	RequestsUntilError int
 }
 
+type MockUserStorageT struct {
+	*MockStorageT
+	user *UserBasic
+}
+
+func (m *MockUserStorageT) GetCurrentUser() *UserBasic {
+	return m.user
+}
+
+func (m *MockUserStorageT) GetStorage() Storage {
+	return m.MockStorageT
+}
+
 type MockStorageT struct {
-	ErrorSimulate          ErrorSimulation
-	autoincrementUserID    uint
-	autoincrementDrawingID uint
-	users                  []*User
-	drawings               []*Drawing
-	relations              [][2]uint // 0 - userID, 1 - drawingID
+	ErrorSimulate            ErrorSimulation
+	UntilNotAllowedOperation uint
+	autoincrementUserID      uint
+	autoincrementDrawingID   uint
+	users                    []*UserConfident
+	drawings                 []*Drawing
+	permissions              []*DrawingPermission
+}
+
+func (td *MockStorageT) GetDrawingPermission(userID, drawingID uint) (*DrawingPermission, error) {
+	if err := td.simulateError(); err != nil {
+		return nil, err
+	}
+	for _, p := range td.permissions {
+		if p.User.ID == userID && p.Drawing.ID == drawingID {
+			return p, nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func (td *MockStorageT) GetDrawingsPermissionsOfDrawing(drawingID uint) ([]*DrawingPermission, error) {
+	if err := td.simulateError(); err != nil {
+		return nil, err
+	}
+	out := make([]*DrawingPermission, 0)
+	for _, p := range td.permissions {
+		if p.Drawing.ID == drawingID {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
+func (td *MockStorageT) GetDrawingsPermissionsOfUser(userID uint) ([]*DrawingPermission, error) {
+	if err := td.simulateError(); err != nil {
+		return nil, err
+	}
+	out := make([]*DrawingPermission, 0)
+	for _, p := range td.permissions {
+		if p.User.ID == userID {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
+func (td *MockStorageT) CreateDrawingPermission(permission *DrawingPermission) error {
+	if err := td.simulateError(); err != nil {
+		return err
+	}
+	if _, err := td.GetDrawingPermission(permission.User.ID, permission.Drawing.ID); err == nil {
+		return ErrAlreadyExist
+	}
+	td.permissions = append(td.permissions, permission)
+	return nil
+}
+
+func (td *MockStorageT) UpdateDrawingPermission(permission *DrawingPermission) error {
+	if err := td.simulateError(); err != nil {
+		return err
+	}
+	for i, p := range td.permissions {
+		if p.User.ID == permission.User.ID && p.Drawing.ID == permission.Drawing.ID {
+			td.permissions[i] = permission
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
+func (td *MockStorageT) RemoveDrawingPermission(userID, drawingID uint) error {
+	if err := td.simulateError(); err != nil {
+		return err
+	}
+	for i, p := range td.permissions {
+		if p.User.ID == userID && p.Drawing.ID == drawingID {
+			td.permissions = append(td.permissions[:i], td.permissions[i+1:]...)
+			return nil
+		}
+	}
+	return ErrNotFound
 }
 
 func newMockStorage() *MockStorageT {
 	storage := MockStorageT{autoincrementUserID: 4, autoincrementDrawingID: 10}
-	storage.users = []*User{
-		{UserOpen{1, "maxim", AdminPermission}, "12345"},
-		{UserOpen{2, "oleg", UserPermission}, "123456"},
-		{UserOpen{3, "elena", UserPermission}, "1234567"},
+	storage.users = []*UserConfident{
+		{UserBasic{1, "maxim", RoleAdmin}, "12345"},
+		{UserBasic{2, "oleg", RoleUser}, "123456"},
+		{UserBasic{3, "elena", RoleUser}, "1234567"},
 	}
 
 	for _, u := range storage.users {
-		t, err := createUserJWTToken(u.UserOpen, SigningSecret, time.Hour)
+		t, err := createUserJWTToken(u.UserBasic, SigningSecret, time.Hour)
 		if err != nil {
 			panic(err)
 		}
@@ -54,36 +144,56 @@ func newMockStorage() *MockStorageT {
 	_ = drawing2.Polygon.AddPoints([]*figure.Point{{X: 0, Y: 0}, {X: 0, Y: 1.55}, {X: 0.725, Y: 1.55}, {X: 0.725, Y: 1.675},
 		{X: 0.125, Y: 1.6751}, {X: 0.1253, Y: 5.9751}, {X: 3.4252, Y: 5.9999}, {X: 3.45, Y: 0}}...)
 	storage.drawings = []*Drawing{
-		{DrawingOpen{ID: 1, Name: "Drawing 1"}, *drawing1},
-		{DrawingOpen{ID: 2, Name: "Drawing 2"}, *drawing2},
-		{DrawingOpen{ID: 3, Name: "Drawing 3"}, *drawing1},
-		{DrawingOpen{ID: 4, Name: "Drawing 4"}, *raster.NewGGDrawing()},
-		{DrawingOpen{ID: 5, Name: "Drawing 5"}, *drawing1},
-		{DrawingOpen{ID: 6, Name: "Drawing 6"}, *raster.NewGGDrawing()},
-		{DrawingOpen{ID: 7, Name: "Drawing 7"}, *drawing2},
-		{DrawingOpen{ID: 8, Name: "Drawing 8"}, *raster.NewGGDrawing()},
-		{DrawingOpen{ID: 9, Name: "Drawing 9"}, *drawing2},
+		{DrawingBasic{ID: 1, Name: "Drawing 1"}, *drawing1},
+		{DrawingBasic{ID: 2, Name: "Drawing 2"}, *drawing2},
+		{DrawingBasic{ID: 3, Name: "Drawing 3"}, *drawing1},
+		{DrawingBasic{ID: 4, Name: "Drawing 4"}, *raster.NewGGDrawing()},
+		{DrawingBasic{ID: 5, Name: "Drawing 5"}, *drawing1},
+		{DrawingBasic{ID: 6, Name: "Drawing 6"}, *raster.NewGGDrawing()},
+		{DrawingBasic{ID: 7, Name: "Drawing 7"}, *drawing2},
+		{DrawingBasic{ID: 8, Name: "Drawing 8"}, *raster.NewGGDrawing()},
+		{DrawingBasic{ID: 9, Name: "Drawing 9"}, *drawing2},
 	}
-	storage.relations = [][2]uint{
-		{1, 2}, {1, 6}, {1, 8}, {1, 9},
-		{2, 1},
-		{3, 3}, {3, 4}, {3, 5}, {3, 7}}
+	storage.permissions = []*DrawingPermission{
+		{User: &storage.users[0].UserBasic, Drawing: &storage.drawings[1].DrawingBasic, Owner: true},
+		{User: &storage.users[0].UserBasic, Drawing: &storage.drawings[5].DrawingBasic, Owner: true},
+		{User: &storage.users[0].UserBasic, Drawing: &storage.drawings[7].DrawingBasic, Owner: true},
+		{User: &storage.users[0].UserBasic, Drawing: &storage.drawings[8].DrawingBasic, Owner: true},
+		{User: &storage.users[0].UserBasic, Drawing: &storage.drawings[2].DrawingBasic, Get: true},
+		{User: &storage.users[0].UserBasic, Drawing: &storage.drawings[3].DrawingBasic, Get: true, Change: true},
+		{User: &storage.users[0].UserBasic, Drawing: &storage.drawings[4].DrawingBasic, Get: true, Change: true, Delete: true},
+		{User: &storage.users[0].UserBasic, Drawing: &storage.drawings[6].DrawingBasic, Get: true, Change: true, Delete: true, Share: true},
+
+		{User: &storage.users[1].UserBasic, Drawing: &storage.drawings[0].DrawingBasic, Owner: true},
+
+		{User: &storage.users[2].UserBasic, Drawing: &storage.drawings[2].DrawingBasic, Owner: true},
+		{User: &storage.users[2].UserBasic, Drawing: &storage.drawings[3].DrawingBasic, Owner: true},
+		{User: &storage.users[2].UserBasic, Drawing: &storage.drawings[4].DrawingBasic, Owner: true},
+		{User: &storage.users[2].UserBasic, Drawing: &storage.drawings[6].DrawingBasic, Owner: true},
+		{User: &storage.users[2].UserBasic, Drawing: &storage.drawings[1].DrawingBasic, Get: true},
+		{User: &storage.users[2].UserBasic, Drawing: &storage.drawings[5].DrawingBasic, Get: true, Change: true},
+		{User: &storage.users[2].UserBasic, Drawing: &storage.drawings[7].DrawingBasic, Get: true, Change: true, Delete: true},
+		{User: &storage.users[2].UserBasic, Drawing: &storage.drawings[8].DrawingBasic, Get: true, Change: true, Delete: true, Share: true},
+	}
 	return &storage
 }
 
 func (td *MockStorageT) simulateError() (err error) {
-	if td.ErrorSimulate.Error == nil {
-		return nil
-	}
-	if td.ErrorSimulate.RequestsUntilError > 0 {
+	if td.ErrorSimulate.Error != nil {
 		td.ErrorSimulate.RequestsUntilError--
-		return nil
+		if td.ErrorSimulate.RequestsUntilError <= 0 {
+			err, td.ErrorSimulate.Error = td.ErrorSimulate.Error, nil
+		}
+	} else if td.UntilNotAllowedOperation != 0 {
+		td.UntilNotAllowedOperation--
+		if td.UntilNotAllowedOperation == 0 {
+			err = ErrOperationNotAllowed
+		}
 	}
-	err, td.ErrorSimulate.Error = td.ErrorSimulate.Error, nil
 	return
 }
 
-func (td *MockStorageT) findUserByLogin(login string) *User {
+func (td *MockStorageT) findUserByLogin(login string) *UserConfident {
 	for _, u := range td.users {
 		if u.Login == login {
 			return u
@@ -92,23 +202,13 @@ func (td *MockStorageT) findUserByLogin(login string) *User {
 	return nil
 }
 
-func (td *MockStorageT) getRelationsOfUser(userID uint) [][2]uint {
-	out := make([][2]uint, 0)
-	for _, da := range td.relations {
-		if da[0] == userID {
-			out = append(out, da)
-		}
-	}
-	return out
-}
-
-func (td *MockStorageT) CreateUsers(users ...*User) error {
+func (td *MockStorageT) CreateUsers(users ...*UserConfident) error {
 	if err := td.simulateError(); err != nil {
 		return err
 	}
 	for _, u := range users {
 		if td.findUserByLogin(u.Login) != nil {
-			return ErrUserAlreadyExist
+			return fmt.Errorf("this user %w", ErrAlreadyExist)
 		}
 		u.ID = td.autoincrementUserID
 		td.autoincrementDrawingID++
@@ -117,7 +217,7 @@ func (td *MockStorageT) CreateUsers(users ...*User) error {
 	return nil
 }
 
-func (td *MockStorageT) GetUser(login, pass string) (*User, error) {
+func (td *MockStorageT) GetUser(login, pass string) (*UserConfident, error) {
 	if err := td.simulateError(); err != nil {
 		return nil, err
 	}
@@ -129,7 +229,7 @@ func (td *MockStorageT) GetUser(login, pass string) (*User, error) {
 	return nil, ErrUserNotFound
 }
 
-func (td *MockStorageT) GetUserByID(id uint) (*User, error) {
+func (td *MockStorageT) GetUserByID(id uint) (*UserConfident, error) {
 	if err := td.simulateError(); err != nil {
 		return nil, err
 	}
@@ -141,17 +241,21 @@ func (td *MockStorageT) GetUserByID(id uint) (*User, error) {
 	return nil, ErrUserNotFound
 }
 
-func (td *MockStorageT) GetUsersList(page, pageLimit uint) ([]*UserOpen, error) {
+func (td *MockStorageT) GetUserStorage(user *UserBasic) (UserStorage, error) {
+	return &MockUserStorageT{MockStorageT: td, user: user}, nil
+}
+
+func (td *MockStorageT) GetUsersList(page, pageLimit uint) ([]*UserBasic, error) {
 	if err := td.simulateError(); err != nil {
 		return nil, err
 	}
-	out := make([]*UserOpen, 0)
+	out := make([]*UserBasic, 0)
 	amount, err := td.UsersAmount()
 	if err != nil {
 		return nil, err
 	}
 	for i, ui := uint(0), pageLimit*(page-1); ui < amount && i < pageLimit; ui, i = ui+1, i+1 {
-		out = append(out, &td.users[ui].UserOpen)
+		out = append(out, &td.users[ui].UserBasic)
 	}
 	return out, nil
 }
@@ -181,7 +285,7 @@ func (td *MockStorageT) RemoveUser(id uint) error {
 	return nil
 }
 
-func (td *MockStorageT) UpdateUser(user *User) error {
+func (td *MockStorageT) UpdateUser(user *UserConfident) error {
 	if err := td.simulateError(); err != nil {
 		return err
 	}
@@ -212,32 +316,28 @@ func (td *MockStorageT) GetDrawingOfUser(userID, drawingID uint) (*Drawing, erro
 	if err := td.simulateError(); err != nil {
 		return nil, err
 	}
-	for _, a := range td.relations {
-		if a[0] == userID && a[1] == drawingID {
-			return td.GetDrawing(drawingID)
-		}
+	if _, err := td.GetDrawingPermission(userID, drawingID); err != nil {
+		return nil, err
 	}
-	return nil, ErrDrawingNotFound
+	return td.GetDrawing(drawingID)
 }
 
-func (td *MockStorageT) GetDrawingsList(userID, page, pageLimit uint) ([]*DrawingOpen, error) {
+func (td *MockStorageT) GetDrawingsList(userID, page, pageLimit uint) ([]*DrawingBasic, error) {
 	if err := td.simulateError(); err != nil {
 		return nil, err
 	}
-	out := make([]*DrawingOpen, 0)
-
 	offset := pageLimit * (page - 1)
 	end := offset + pageLimit
-	das := td.getRelationsOfUser(userID)
-	if l := uint(len(das)); end > l {
+	dOfU, err := td.GetDrawingsPermissionsOfUser(userID)
+	if err != nil {
+		return nil, err
+	}
+	if l := uint(len(dOfU)); end > l {
 		end = l
 	}
-	for _, da := range das[offset:end] {
-		drawing, err := td.GetDrawing(da[1])
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, &drawing.DrawingOpen)
+	out := make([]*DrawingBasic, 0)
+	for _, dp := range dOfU[offset:end] {
+		out = append(out, dp.Drawing)
 	}
 	return out, nil
 }
@@ -246,17 +346,28 @@ func (td *MockStorageT) DrawingsAmount(userID uint) (uint, error) {
 	if err := td.simulateError(); err != nil {
 		return 0, err
 	}
-	l := len(td.getRelationsOfUser(userID))
-	return uint(l), nil
+	ps, err := td.GetDrawingsPermissionsOfUser(userID)
+	if err != nil {
+		return 0, err
+	}
+	return uint(len(ps)), nil
 }
 
 func (td *MockStorageT) CreateDrawings(userID uint, drawings ...*Drawing) error {
 	if err := td.simulateError(); err != nil {
 		return err
 	}
+	user, err := td.GetUserByID(userID)
+	if err != nil {
+		return err
+	}
 	for _, d := range drawings {
 		d.ID = td.autoincrementDrawingID
-		td.relations = append(td.relations, [2]uint{userID, td.autoincrementDrawingID})
+		p := &DrawingPermission{User: &user.UserBasic, Drawing: &d.DrawingBasic, Get: true, Change: true, Delete: true,
+			Share: true, Owner: true}
+		if err := td.CreateDrawingPermission(p); err != nil {
+			return err
+		}
 		td.autoincrementDrawingID++
 	}
 	td.drawings = append(td.drawings, drawings...)
@@ -398,8 +509,8 @@ func checkTestCase(t *testing.T, tt TestCase, data *MockStorageT) {
 func Test_authorizationMiddleware(t *testing.T) {
 	var err error
 	storage := newMockStorage()
-	tokens[300] = tokens[storage.users[0].ID] + "a"                                             // bad
-	tokens[301], err = createUserJWTToken(storage.users[0].UserOpen, SigningSecret, -time.Hour) // expired
+	tokens[300] = tokens[storage.users[0].ID] + "a"                                              // bad
+	tokens[301], err = createUserJWTToken(storage.users[0].UserBasic, SigningSecret, -time.Hour) // expired
 	if err != nil {
 		t.Error(err)
 		return
@@ -414,11 +525,10 @@ func Test_authorizationMiddleware(t *testing.T) {
 			wantStatus:  http.StatusOK,
 		},
 		{
-			name:        "Forbidden",
-			url:         "/users",
-			method:      http.MethodGet,
-			tokenUserID: 3,
-			wantStatus:  http.StatusForbidden,
+			name:       "Unauthorized",
+			url:        "/users",
+			method:     http.MethodGet,
+			wantStatus: http.StatusUnauthorized,
 		},
 		{
 			name:        "Bad token",
@@ -433,35 +543,6 @@ func Test_authorizationMiddleware(t *testing.T) {
 			method:      http.MethodGet,
 			tokenUserID: 301,
 			wantStatus:  http.StatusUnauthorized,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			checkTestCase(t, tt, storage)
-		})
-	}
-}
-
-func Test_gettingDrawingMiddlewareErrors(t *testing.T) {
-	storage := newMockStorage()
-	mf := gettingDrawingMiddleware(storage)
-	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
-
-	tests := []TestCase{
-		{
-			name:           "Skip",
-			url:            "/",
-			method:         http.MethodGet,
-			testingHandler: mf(nextHandler),
-			wantStatus:     http.StatusOK,
-		},
-		{
-			name:           "Bad userID",
-			url:            "/drawings/1",
-			method:         http.MethodGet,
-			testingHandler: mf(nextHandler),
-			inPanic:        true,
-			wantStatus:     http.StatusInternalServerError,
 		},
 	}
 	for _, tt := range tests {
@@ -556,8 +637,8 @@ func Test_getUsersListHandler(t *testing.T) {
 			method:      http.MethodGet,
 			tokenUserID: 1,
 			wantStatus:  http.StatusOK,
-			wantResponseBodyEquality: `{"users":[{"id":1,"login":"maxim","permission":1},` +
-				`{"id":2,"login":"oleg","permission":2},{"id":3,"login":"elena","permission":2}],` +
+			wantResponseBodyEquality: `{"users":[{"id":1,"login":"maxim","role":1},` +
+				`{"id":2,"login":"oleg","role":2},{"id":3,"login":"elena","role":2}],` +
 				`"amount":3,"page":1,"page_limit":30,"pages":1}`,
 		},
 		{
@@ -566,8 +647,8 @@ func Test_getUsersListHandler(t *testing.T) {
 			method:      http.MethodGet,
 			tokenUserID: 1,
 			wantStatus:  http.StatusOK,
-			wantResponseBodyEquality: `{"users":[{"id":1,"login":"maxim","permission":1},` +
-				`{"id":2,"login":"oleg","permission":2}],"amount":3,"page":1,"page_limit":2,"pages":2}`,
+			wantResponseBodyEquality: `{"users":[{"id":1,"login":"maxim","role":1},` +
+				`{"id":2,"login":"oleg","role":2}],"amount":3,"page":1,"page_limit":2,"pages":2}`,
 		},
 		{
 			name:        "OK with params p=2&lim=2",
@@ -575,7 +656,7 @@ func Test_getUsersListHandler(t *testing.T) {
 			method:      http.MethodGet,
 			tokenUserID: 1,
 			wantStatus:  http.StatusOK,
-			wantResponseBodyEquality: `{"users":[{"id":3,"login":"elena","permission":2}],` +
+			wantResponseBodyEquality: `{"users":[{"id":3,"login":"elena","role":2}],` +
 				`"amount":3,"page":2,"page_limit":2,"pages":2}`,
 		},
 		{
@@ -584,8 +665,8 @@ func Test_getUsersListHandler(t *testing.T) {
 			method:      http.MethodGet,
 			tokenUserID: 1,
 			wantStatus:  http.StatusOK,
-			wantResponseBodyEquality: `{"users":[{"id":1,"login":"maxim","permission":1},` +
-				`{"id":2,"login":"oleg","permission":2},{"id":3,"login":"elena","permission":2}],` +
+			wantResponseBodyEquality: `{"users":[{"id":1,"login":"maxim","role":1},` +
+				`{"id":2,"login":"oleg","role":2},{"id":3,"login":"elena","role":2}],` +
 				`"amount":3,"page":1,"page_limit":30,"pages":1}`,
 		},
 		{
@@ -594,7 +675,7 @@ func Test_getUsersListHandler(t *testing.T) {
 			method:      http.MethodGet,
 			tokenUserID: 1,
 			wantStatus:  http.StatusOK,
-			wantResponseBodyEquality: `{"users":[{"id":1,"login":"maxim","permission":1}],` +
+			wantResponseBodyEquality: `{"users":[{"id":1,"login":"maxim","role":1}],` +
 				`"amount":3,"page":1,"page_limit":1,"pages":3}`,
 		},
 		{
@@ -698,7 +779,7 @@ func Test_getUserCreatingHandler(t *testing.T) {
 			inPanic:         true,
 		},
 		{
-			name:        "User with this login already exists",
+			name:        "UserConfident with this login already exists",
 			url:         "/users",
 			method:      http.MethodPost,
 			requestBody: `{"login": "elena", "password": "321456"}`,
@@ -726,7 +807,7 @@ func Test_getUserGettingHandler(t *testing.T) {
 			method:                   http.MethodGet,
 			tokenUserID:              1,
 			wantStatus:               http.StatusOK,
-			wantResponseBodyEquality: `{"id":1,"login":"maxim","permission":1}`,
+			wantResponseBodyEquality: `{"id":1,"login":"maxim","role":1}`,
 		},
 		{
 			name:                     "OK 2",
@@ -734,7 +815,7 @@ func Test_getUserGettingHandler(t *testing.T) {
 			method:                   http.MethodGet,
 			tokenUserID:              1,
 			wantStatus:               http.StatusOK,
-			wantResponseBodyEquality: `{"id":2,"login":"oleg","permission":2}`,
+			wantResponseBodyEquality: `{"id":2,"login":"oleg","role":2}`,
 		},
 		{
 			name:        "Not Found",
@@ -833,7 +914,7 @@ func Test_getUserUpdatingHandler(t *testing.T) {
 		TestCase
 		userID          uint
 		login, password string
-		permission      Permission
+		role            UserRole
 	}
 	tests := []UpdatingTestCase{
 		{TestCase: TestCase{
@@ -899,14 +980,14 @@ func Test_getUserUpdatingHandler(t *testing.T) {
 					t.Error(err)
 				}
 				if tt.login != "" && tt.login != u.Login {
-					t.Errorf("getUserUpdatingHandler() not changed login of %d user. Got %s, want %s", tt.userID, u.Login, tt.login)
+					t.Errorf("userUpdatingHandler() not changed login of %d user. Got %s, want %s", tt.userID, u.Login, tt.login)
 				}
 				if tt.password != "" && tt.password != u.Password {
-					t.Errorf("getUserUpdatingHandler() not changed password of %d user. Got %s, want %s", tt.userID, u.Password, tt.password)
+					t.Errorf("userUpdatingHandler() not changed password of %d user. Got %s, want %s", tt.userID, u.Password, tt.password)
 				}
-				if tt.permission != 0 && tt.permission != u.Permission {
-					t.Errorf("getUserUpdatingHandler() not changed permission of %d user. Got %v, want %v",
-						tt.userID, u.Permission, tt.permission)
+				if tt.role != 0 && tt.role != u.Role {
+					t.Errorf("userUpdatingHandler() not changed role of %d user. Got %v, want %v",
+						tt.userID, u.Role, tt.role)
 				}
 			}
 		})
@@ -926,7 +1007,9 @@ func Test_getDrawingsListGettingHandler(t *testing.T) {
 			wantStatus:  http.StatusOK,
 			tokenUserID: 1,
 			wantResponseBodyEquality: `{"drawings":[{"id":2,"name":"Drawing 2"},{"id":6,"name":"Drawing 6"},` +
-				`{"id":8,"name":"Drawing 8"},{"id":9,"name":"Drawing 9"}],"amount":4,"page":1,"page_limit":30,"pages":1}`,
+				`{"id":8,"name":"Drawing 8"},{"id":9,"name":"Drawing 9"},{"id":3,"name":"Drawing 3"},` +
+				`{"id":4,"name":"Drawing 4"},{"id":5,"name":"Drawing 5"},{"id":7,"name":"Drawing 7"}],` +
+				`"amount":8,"page":1,"page_limit":30,"pages":1}`,
 		},
 		{
 			name:        "OK 2",
@@ -944,7 +1027,7 @@ func Test_getDrawingsListGettingHandler(t *testing.T) {
 			wantStatus:  http.StatusOK,
 			tokenUserID: 3,
 			wantResponseBodyEquality: `{"drawings":[{"id":5,"name":"Drawing 5"},{"id":7,"name":"Drawing 7"}],` +
-				`"amount":4,"page":2,"page_limit":2,"pages":2}`,
+				`"amount":8,"page":2,"page_limit":2,"pages":4}`,
 		},
 		{
 			name:        "OK 1 with only p=2 (page>pages -> page=pages)",
@@ -953,7 +1036,9 @@ func Test_getDrawingsListGettingHandler(t *testing.T) {
 			wantStatus:  http.StatusOK,
 			tokenUserID: 1,
 			wantResponseBodyEquality: `{"drawings":[{"id":2,"name":"Drawing 2"},{"id":6,"name":"Drawing 6"},` +
-				`{"id":8,"name":"Drawing 8"},{"id":9,"name":"Drawing 9"}],"amount":4,"page":1,"page_limit":30,"pages":1}`,
+				`{"id":8,"name":"Drawing 8"},{"id":9,"name":"Drawing 9"},{"id":3,"name":"Drawing 3"},` +
+				`{"id":4,"name":"Drawing 4"},{"id":5,"name":"Drawing 5"},{"id":7,"name":"Drawing 7"}],` +
+				`"amount":8,"page":1,"page_limit":30,"pages":1}`,
 		},
 		{
 			name:        "OK 1 with only lim=3",
@@ -962,7 +1047,7 @@ func Test_getDrawingsListGettingHandler(t *testing.T) {
 			wantStatus:  http.StatusOK,
 			tokenUserID: 1,
 			wantResponseBodyEquality: `{"drawings":[{"id":2,"name":"Drawing 2"},{"id":6,"name":"Drawing 6"},` +
-				`{"id":8,"name":"Drawing 8"}],"amount":4,"page":1,"page_limit":3,"pages":2}`,
+				`{"id":8,"name":"Drawing 8"}],"amount":8,"page":1,"page_limit":3,"pages":3}`,
 		},
 		{
 			name:       "Unauthorized",
@@ -1102,11 +1187,12 @@ func Test_drawingGettingHandler(t *testing.T) {
 			tokenUserID: 3,
 		},
 		{
-			name:        "Don't have access",
-			url:         "/drawings/1",
-			method:      http.MethodGet,
-			wantStatus:  http.StatusNotFound,
-			tokenUserID: 1,
+			name:            "Don't have access",
+			url:             "/drawings/1",
+			method:          http.MethodGet,
+			simulateDBError: ErrorSimulation{Error: ErrOperationNotAllowed},
+			wantStatus:      http.StatusForbidden,
+			tokenUserID:     1,
 		},
 		{
 			name:       "Unauthorized",
@@ -1154,11 +1240,12 @@ func Test_drawingImageHandler(t *testing.T) {
 			DrawingID: 2,
 		},
 		{TestCase: TestCase{
-			name:        "User doesn't have access",
-			url:         "/drawings/1/image",
-			method:      http.MethodGet,
-			wantStatus:  http.StatusNotFound,
-			tokenUserID: 1,
+			name:            "UserConfident doesn't have access",
+			url:             "/drawings/1/image",
+			method:          http.MethodGet,
+			simulateDBError: ErrorSimulation{Error: ErrOperationNotAllowed},
+			wantStatus:      http.StatusForbidden,
+			tokenUserID:     1,
 		}},
 		{TestCase: TestCase{
 			name:        "Not found",
@@ -1199,11 +1286,12 @@ func Test_getDrawingDeletingHandler(t *testing.T) {
 			DrawingID: 6,
 		},
 		{TestCase: TestCase{
-			name:        "User doesn't have access",
-			url:         "/drawings/1",
-			method:      http.MethodDelete,
-			wantStatus:  http.StatusNotFound,
-			tokenUserID: 1,
+			name:            "UserConfident doesn't have access",
+			url:             "/drawings/1",
+			method:          http.MethodDelete,
+			simulateDBError: ErrorSimulation{Error: ErrOperationNotAllowed},
+			wantStatus:      http.StatusForbidden,
+			tokenUserID:     1,
 		}},
 		{TestCase: TestCase{
 			name:        "Not found",
@@ -1306,11 +1394,12 @@ func Test_drawingPointsGettingHandler(t *testing.T) {
 			tokenUserID: 1,
 		},
 		{
-			name:        "User doesn't have access",
-			url:         "/drawings/1/points",
-			method:      http.MethodGet,
-			wantStatus:  http.StatusNotFound,
-			tokenUserID: 1,
+			name:            "UserConfident doesn't have access",
+			url:             "/drawings/1/points",
+			method:          http.MethodGet,
+			simulateDBError: ErrorSimulation{Error: ErrOperationNotAllowed},
+			wantStatus:      http.StatusForbidden,
+			tokenUserID:     1,
 		},
 		{
 			name:        "Not found",
@@ -1369,13 +1458,14 @@ func Test_getDrawingPointsAddingHandler(t *testing.T) {
 				`{"x":222.01,"y":169.98},{"x":225,"y":0}],"measure":"cm"}`,
 		},
 		{
-			name:   "User doesn't have access",
+			name:   "UserConfident doesn't have access",
 			url:    "/drawings/1/points",
 			method: http.MethodPost,
 			requestBody: `{"points":[{"distance":125,"angle":90},{"distance":27,"angle":90},{"x":27.01,"y":171},` +
 				`{"x":222.01,"y":169.98},{"x":225,"y":0}],"measures":{"length":"cm","angle":"deg"}}`,
-			wantStatus:  http.StatusNotFound,
-			tokenUserID: 1,
+			simulateDBError: ErrorSimulation{Error: ErrOperationNotAllowed},
+			wantStatus:      http.StatusForbidden,
+			tokenUserID:     1,
 		},
 		{
 			name:   "Not found",
@@ -1593,12 +1683,13 @@ func Test_getDrawingPointUpdatingHandler(t *testing.T) {
 			tokenUserID: 2,
 		}},
 		{TestCase: TestCase{
-			name:        "Not found drawing ID",
-			url:         "/drawings/2/points/1",
-			method:      http.MethodPut,
-			wantStatus:  http.StatusNotFound,
-			requestBody: `{"point":{"distance":3,"angle":270},"measures":{"length":"dm","angle":"deg"}}`,
-			tokenUserID: 2,
+			name:            "Not found drawing ID",
+			url:             "/drawings/2/points/1",
+			method:          http.MethodPut,
+			simulateDBError: ErrorSimulation{Error: ErrDrawingNotFound},
+			wantStatus:      http.StatusNotFound,
+			requestBody:     `{"point":{"distance":3,"angle":270},"measures":{"length":"dm","angle":"deg"}}`,
+			tokenUserID:     2,
 		}},
 	}
 	for _, tt := range tests {
@@ -1613,6 +1704,226 @@ func Test_getDrawingPointUpdatingHandler(t *testing.T) {
 					if p.X != coords[0] || p.Y != coords[1] {
 						t.Errorf("Got wrong point coordinates. Got %v, want %v", d.Points[i], coords)
 					}
+				}
+			}
+		})
+	}
+}
+
+func Test_userPermissionsGettingHandler(t *testing.T) {
+	tests := []TestCase{
+		{
+			name:        "OK",
+			url:         "/users/1/permissions",
+			method:      http.MethodGet,
+			tokenUserID: 1,
+			wantStatus:  http.StatusOK,
+			wantResponseBodyEquality: `[{"user":{"id":1,"login":"maxim","role":1},"drawing":{"id":2,"name":"Drawing 2"},"owner":true},` +
+				`{"user":{"id":1,"login":"maxim","role":1},"drawing":{"id":6,"name":"Drawing 6"},"owner":true},` +
+				`{"user":{"id":1,"login":"maxim","role":1},"drawing":{"id":8,"name":"Drawing 8"},"owner":true},` +
+				`{"user":{"id":1,"login":"maxim","role":1},"drawing":{"id":9,"name":"Drawing 9"},"owner":true},` +
+				`{"user":{"id":1,"login":"maxim","role":1},"drawing":{"id":3,"name":"Drawing 3"},"get":true},` +
+				`{"user":{"id":1,"login":"maxim","role":1},"drawing":{"id":4,"name":"Drawing 4"},"get":true,"change":true},` +
+				`{"user":{"id":1,"login":"maxim","role":1},"drawing":{"id":5,"name":"Drawing 5"},"get":true,"change":true,"delete":true},` +
+				`{"user":{"id":1,"login":"maxim","role":1},"drawing":{"id":7,"name":"Drawing 7"},"get":true,"change":true,"delete":true,"share":true}]`,
+		},
+		{
+			name:                     "OK Another user",
+			url:                      "/users/2/permissions",
+			method:                   http.MethodGet,
+			tokenUserID:              1,
+			wantStatus:               http.StatusOK,
+			wantResponseBodyEquality: `[{"user":{"id":2,"login":"oleg","role":2},"drawing":{"id":1,"name":"Drawing 1"},"owner":true}]`,
+		},
+		{
+			name:            "Forbidden",
+			url:             "/users/1/permissions",
+			method:          http.MethodGet,
+			tokenUserID:     2,
+			simulateDBError: ErrorSimulation{Error: ErrOperationNotAllowed, RequestsUntilError: 0},
+			wantStatus:      http.StatusForbidden,
+		},
+		{
+			name:       "Unauthorized",
+			url:        "/users/1/permissions",
+			method:     http.MethodGet,
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:            "DB Error",
+			url:             "/users/1/permissions",
+			method:          http.MethodGet,
+			tokenUserID:     1,
+			wantStatus:      http.StatusInternalServerError,
+			simulateDBError: ErrorSimulation{Error: errTestDB},
+			inPanic:         true,
+		},
+		{
+			name:           "Could not get UserStorage",
+			url:            "/users/1/permissions",
+			method:         http.MethodGet,
+			tokenUserID:    1,
+			testingHandler: http.HandlerFunc(permissionsOfUserGettingHandler),
+			wantStatus:     http.StatusInternalServerError,
+			inPanic:        true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := newMockStorage()
+			checkTestCase(t, tt, data)
+		})
+	}
+}
+
+func Test_drawingPermissionsGettingHandler(t *testing.T) {
+	tests := []TestCase{
+		{
+			name:        "OK",
+			url:         "/drawings/2/permissions",
+			method:      http.MethodGet,
+			tokenUserID: 1,
+			wantStatus:  http.StatusOK,
+			wantResponseBodyEquality: `[{"user":{"id":1,"login":"maxim","role":1},"drawing":{"id":2,"name":"Drawing 2"},"owner":true},` +
+				`{"user":{"id":3,"login":"elena","role":2},"drawing":{"id":2,"name":"Drawing 2"},"get":true}]`,
+		},
+		{
+			name:       "Unauthorized",
+			url:        "/drawings/2/permissions",
+			method:     http.MethodGet,
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:            "DB Error",
+			url:             "/drawings/2/permissions",
+			method:          http.MethodGet,
+			tokenUserID:     1,
+			wantStatus:      http.StatusInternalServerError,
+			simulateDBError: ErrorSimulation{Error: errTestDB},
+			inPanic:         true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := newMockStorage()
+			checkTestCase(t, tt, data)
+		})
+	}
+}
+
+func Test_permissionCreatingHandler(t *testing.T) {
+	type PermTestCase struct {
+		TestCase
+		UserID, DrawingID uint
+	}
+	tests := []PermTestCase{
+		{TestCase: TestCase{
+			name:                "Create for drawing",
+			url:                 "/drawings/2/permissions",
+			method:              http.MethodPost,
+			tokenUserID:         1,
+			requestBody:         `{"user_id":2, "get":true}`,
+			wantStatus:          http.StatusCreated,
+			wantResponseHeaders: map[string]string{"Location": "/drawings/2/permissions/users/2"},
+		}, UserID: 2, DrawingID: 2},
+		{TestCase: TestCase{
+			name:                "Create for user",
+			url:                 "/users/2/permissions",
+			method:              http.MethodPost,
+			tokenUserID:         1,
+			requestBody:         `{"drawing_id":2, "get":true}`,
+			wantStatus:          http.StatusCreated,
+			wantResponseHeaders: map[string]string{"Location": "/drawings/2/permissions/users/2"},
+		}, UserID: 2, DrawingID: 2},
+		{TestCase: TestCase{
+			name:       "Unauthorized",
+			url:        "/drawings/2/permissions",
+			method:     http.MethodPost,
+			wantStatus: http.StatusUnauthorized,
+		}},
+		{TestCase: TestCase{
+			name:            "DB Error",
+			url:             "/drawings/2/permissions",
+			method:          http.MethodPost,
+			requestBody:     `{"user_id":2, "get":true}`,
+			tokenUserID:     1,
+			wantStatus:      http.StatusInternalServerError,
+			simulateDBError: ErrorSimulation{Error: errTestDB},
+			inPanic:         true,
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := newMockStorage()
+			checkTestCase(t, tt.TestCase, data)
+			if tt.UserID != 0 && tt.DrawingID != 0 {
+				if _, err := data.GetDrawingPermission(tt.UserID, tt.DrawingID); err != nil {
+					t.Errorf("GetDrawingPermission() got error %v", err)
+				}
+			}
+		})
+	}
+}
+
+func Test_permissionGetterAndDeletingHandler(t *testing.T) {
+	type PermTestCase struct {
+		TestCase
+		UserID, DrawingID uint
+	}
+	tests := []PermTestCase{
+		{TestCase: TestCase{
+			name:                     "Get drawing/user",
+			url:                      "/drawings/2/permissions/users/1",
+			method:                   http.MethodGet,
+			tokenUserID:              1,
+			wantStatus:               http.StatusOK,
+			wantResponseBodyEquality: `{"user":{"id":1,"login":"maxim","role":1},"drawing":{"id":2,"name":"Drawing 2"},"owner":true}`,
+		}},
+		{TestCase: TestCase{
+			name:                     "Get users/drawing",
+			url:                      "/users/1/permissions/drawings/2",
+			method:                   http.MethodGet,
+			tokenUserID:              1,
+			wantStatus:               http.StatusOK,
+			wantResponseBodyEquality: `{"user":{"id":1,"login":"maxim","role":1},"drawing":{"id":2,"name":"Drawing 2"},"owner":true}`,
+		}},
+		{TestCase: TestCase{
+			name:        "Delete drawing/user",
+			url:         "/drawings/2/permissions/users/1",
+			method:      http.MethodDelete,
+			tokenUserID: 1,
+			wantStatus:  http.StatusOK,
+		}, UserID: 1, DrawingID: 2},
+		{TestCase: TestCase{
+			name:        "Get users/drawing",
+			url:         "/users/1/permissions/drawings/2",
+			method:      http.MethodDelete,
+			tokenUserID: 1,
+			wantStatus:  http.StatusOK,
+		}, UserID: 1, DrawingID: 2},
+		{TestCase: TestCase{
+			name:       "Unauthorized",
+			url:        "/users/1/permissions/drawings/2",
+			method:     http.MethodDelete,
+			wantStatus: http.StatusUnauthorized,
+		}},
+		{TestCase: TestCase{
+			name:            "DB Error",
+			url:             "/drawings/2/permissions",
+			method:          http.MethodGet,
+			tokenUserID:     1,
+			wantStatus:      http.StatusInternalServerError,
+			simulateDBError: ErrorSimulation{Error: errTestDB},
+			inPanic:         true,
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := newMockStorage()
+			checkTestCase(t, tt.TestCase, data)
+			if tt.UserID != 0 && tt.DrawingID != 0 {
+				if _, err := data.GetDrawingPermission(tt.UserID, tt.DrawingID); err == nil {
+					t.Error("GetDrawingPermission() got nil error")
 				}
 			}
 		})

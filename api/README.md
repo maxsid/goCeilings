@@ -1,6 +1,6 @@
 API Commands Description
 ========================
-#### Login
+## 1. Login requests
 `POST /login` - request for getting of JWT key. 
 *Request body*:
 ```json
@@ -13,7 +13,7 @@ API Commands Description
 This token has to use in the `Authorization` header value (like this: Authorization: Bearer <JWT_KEY>). 
 Token is valid for 1 day. Then you have to request a new one with `POST /login` method.
 #### Users
-All request `users` requests require Admin permission (field Permission=1) 
+All request `users` requests require Admin role (field role=1) 
 
 ----------------------------------------------------
 `GET /users?p={p}&=lim={lim}` - get users list.
@@ -28,17 +28,17 @@ Both parameters aren't necessary and by default equal `p` = 1 and `lim` = 30.
         {
             "id": 1,
             "login": "admin",
-            "permission": 1
+            "role": 1
         },
         {
             "id": 2,
             "login": "maxim",
-            "permission": 2
+            "role": 2
         },
         {
             "id": 3,
             "login": "elena",
-            "permission": 2
+            "role": 2
         }
     ],
     "amount": 3,
@@ -50,7 +50,7 @@ Both parameters aren't necessary and by default equal `p` = 1 and `lim` = 30.
 + `users` is a list of users where:
     + `id` - user ID
     + `login` - login for authorization.
-    + `permission` - access level. At this moment `permission=1` for admins, `permission=2` for users.
+    + `role` - access level. At this moment `role=1` for admins, `role=2` for users.
 + `amount` - amount of the users in a database.
 + `page` - current page of the list (p).
 + `page_limit` - a number of users on one page (lim)
@@ -60,23 +60,23 @@ Both parameters aren't necessary and by default equal `p` = 1 and `lim` = 30.
 `POST /users` - create users.
 *Request body*:
 ```json
-{"login": "maxim", "password": "123456789", "permission": 2}
+{"login": "maxim", "password": "123456789", "role": 2}
 ```
 Description of fields see at `GET /users` chapter.
-Fields `login` and `password` is required. Permission by default is equal 2.
+Fields `login` and `password` is required. Role by default is equal 2.
 *Response*: If the response has code 201, then the request has been completed successfully.
 
 -----------------------------------------------------------------
 `GET /users/{id}` - get information about one user by ID. 
 *Response*:
 ```json
-{"id": "1", "login": "maxim", "permission": 2}
+{"id": "1", "login": "maxim", "role": 2}
 ```
 ----------------------------------------------------
 `PUT /users/{id}` - update information about a user by ID.
 *Request*: body for the login changing of the user:
 ```json
-{"login": "maxim", "password": "123", "permission": 2}
+{"login": "maxim", "password": "123", "role": 2}
 ```
 Not necessary specify all fields. Only specified ones will be updated.
 *Response*: If the response has code 200, then the request has been completed successfully.
@@ -84,7 +84,7 @@ Not necessary specify all fields. Only specified ones will be updated.
 `DELETE /users/{id}` - delete a user by ID.
 *Response*: If the response has code 200, then the request has been completed successfully.
 -----------------------------------------
-#### Drawings
+## 2. Drawing requests
 `GET /drawings?p={p}&=lim={lim}` - get drawings accessible for current user. 
 About parameters `p` and `lim` read `GET /users`.
 *Response*:
@@ -263,3 +263,107 @@ Point record has the same rule as `POST /drawings` and `POST /drawings/{id}/poin
 `GET /drawings/{id}/image?info=true` - get png image of the drawing.
 If parameter `info=true` then in the image will be included information about 
 drawing, like area, perimeter, width and other. 
+
+## 3. Drawing permissions management
+
+All users in the database have a role of `admin` or `user`. `Admin` has all permissions for any requests, including `/users`
+and even requests on behalf of any other user. `User`s have only next:
+- Get user information about himself or herself.
+- Create new drawings.
+- Get/Change/Delete/Share their own drawings.
+- Get/Change/Delete/Share drawings of other users if the user has permission on this operation, which was got from 
+  a drawing creator or from the user with Share permissions.
+  
+Permissions `Get`, `Change` and `Delete` speak for themselves. Permission `Share` allows the user to control permissions 
+for other users on the drawing. This chapter provides information about permission management requests. 
+`Owner` permission means that a user is the drawing creator, thus `Owner` is equivalent to `Get`, `Change`, `Delete` and 
+`Share`, but cannot be deleted without the drawing.
+----
+`GET /users/{id}/permissions` - get all permissions of the user by ID.
+
+*Response example*:
+```json
+[
+  {
+    "user": {
+      "id": 1,
+      "login": "maxim",
+      "role": 1
+    },
+    "drawing": {
+      "id": 2,
+      "name": "Drawing 2"
+    },
+    "owner": true
+  },
+  {
+    "user": {
+      "id": 1,
+      "login": "maxim",
+      "role": 1
+    },
+    "drawing": {
+      "id": 7,
+      "name": "Drawing 7"
+    },
+    "get": true,
+    "change": true,
+    "delete": true,
+    "share": true
+  }
+]
+```
+Not specified fields mean false.
+
+----
+`GET /drawings/{id}/permissions` - get all permissions on this drawing by ID.
+
+*Response* has the same format as in the previous example.
+
+---
+`POST /drawings/{id}/permissions` or `POST /users/{id}/permissions` - create a permission.
+The both requests do the same thing, but the first specify the drawing, and the second specify the user, so it's 
+no need writing their in the request body.
+
+*Request example*:
+```json
+{
+  "user_id": 2,
+  "get": true
+}
+```
+or
+```json
+{
+  "drawing_id": 3,
+  "get": true,
+  "change": true
+}
+```
+Success *response* returns 201 status code.
+
+---
+`GET /users/{id}/permissions/drawings/{id}` or `GET /drawings/{id}/permissions/users/{id}` - get a separated permission
+by user_id and drawing_id.
+
+*Response example*:
+```json
+{
+  "user": {
+    "id": 1,
+    "login": "maxim",
+    "role": 1
+  },
+  "drawing": {
+    "id": 5,
+    "name": "Drawing 5"
+  },
+  "get": true,
+  "change": true
+}
+```
+---
+`DELETE /users/{id}/permissions/drawings/{id}` or `DELETE /drawings/{id}/permissions/users/{id}` - 
+delete a separated permission by user_id and drawing_id.
+
+Success *response* returns 200 status code.

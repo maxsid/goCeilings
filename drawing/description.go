@@ -35,7 +35,7 @@ func (d Description) ToStringSlice() []string {
 	return out
 }
 
-func (d Description) Scan(value interface{}) error {
+func (d *Description) Scan(value interface{}) error {
 	var data []byte
 	switch value.(type) {
 	case []byte:
@@ -45,7 +45,7 @@ func (d Description) Scan(value interface{}) error {
 	default:
 		return ErrWrongArgumentType
 	}
-	return json.Unmarshal(data, &d)
+	return json.Unmarshal(data, d)
 }
 
 func (d Description) Value() (driver.Value, error) {

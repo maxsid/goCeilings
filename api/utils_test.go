@@ -22,13 +22,13 @@ func Test_readListStatData(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    args
-		want    *ListStatData
+		want    *listStatData
 		wantErr bool
 	}{
 		{
 			name: "Empty vars",
 			args: args{vars: url.Values{}, amount: 10},
-			want: &ListStatData{
+			want: &listStatData{
 				PageLimit: defaultPageLimit,
 				Page:      defaultPage,
 				Amount:    10,
@@ -44,7 +44,7 @@ func Test_readListStatData(t *testing.T) {
 					string(urlParamPage):      []string{"123"},
 				},
 			},
-			want: &ListStatData{
+			want: &listStatData{
 				PageLimit: 60,
 				Page:      3,
 				Amount:    133,
@@ -57,7 +57,7 @@ func Test_readListStatData(t *testing.T) {
 				amount: 10,
 				vars:   url.Values{string(urlParamPageLimit): []string{"55"}},
 			},
-			want: &ListStatData{
+			want: &listStatData{
 				PageLimit: 55,
 				Page:      defaultPage,
 				Amount:    10,
@@ -73,7 +73,7 @@ func Test_readListStatData(t *testing.T) {
 					string(urlParamPage):      []string{"2"},
 				},
 			},
-			want: &ListStatData{
+			want: &listStatData{
 				PageLimit: 60,
 				Page:      2,
 				Amount:    133,
@@ -583,6 +583,11 @@ func Test_getSettable(t *testing.T) {
 		{
 			name:    "Not settable",
 			args:    args{v: i},
+			wantErr: true,
+		},
+		{
+			name:    "Nil",
+			args:    args{v: nil},
 			wantErr: true,
 		},
 	}

@@ -18,13 +18,15 @@ var (
 	ErrDrawingNotFound = fmt.Errorf("the drawing %w", ErrNotFound)
 	ErrPointNotFound   = fmt.Errorf("the point %w", ErrNotFound)
 
-	ErrUserAlreadyExist   = errors.New("the user with this login already exist")
+	ErrAlreadyExist       = errors.New("already exist")
 	ErrValueIsNotSettable = errors.New("the value is not settable")
 	ErrWrongValueKind     = errors.New("wrong value kind")
 
 	ErrBadRequestData     = errors.New("bad request data")
 	ErrEmptyRequestBody   = fmt.Errorf("%w: empty request body", ErrBadRequestData)
 	ErrBadLoginOrPassword = fmt.Errorf("%w: specified wrong or empty login/password", ErrBadRequestData)
+
+	ErrOperationNotAllowed = fmt.Errorf("operation is not allowed")
 )
 
 // writeError writes error, if it's not equal nil, into http.ResponseWriter and log.Logger, and then returns true.
@@ -41,10 +43,12 @@ func writeError(w http.ResponseWriter, err error) bool {
 	respMsg, respStatus, printPanic := "", 0, false
 	if err == nil {
 		return false
-	} else if multiTargetErrIs(err, ErrCouldNotReadURLParameter, ErrCouldNotReadPathVar, ErrUserAlreadyExist, ErrBadRequestData) {
+	} else if multiTargetErrIs(err, ErrCouldNotReadPathVar, ErrCouldNotReadURLParameter, ErrAlreadyExist, ErrBadRequestData) {
 		respStatus, respMsg = http.StatusBadRequest, "bad request: "+err.Error()
-	} else if multiTargetErrIs(err, ErrUserNotFound, ErrDrawingNotFound, ErrPointNotFound) {
+	} else if multiTargetErrIs(err, ErrNotFound) {
 		respStatus, respMsg = http.StatusNotFound, "not found: "+err.Error()
+	} else if multiTargetErrIs(err, ErrOperationNotAllowed) {
+		respStatus, respMsg = http.StatusForbidden, "forbidden: "+err.Error()
 	} else {
 		printPanic, respStatus, respMsg = true, http.StatusInternalServerError, "internal server error"
 	}

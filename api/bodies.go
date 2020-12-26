@@ -6,24 +6,24 @@ import (
 )
 
 // Request and responses JSON bodies
-type ListStatData struct {
+type listStatData struct {
 	Amount    uint `json:"amount"`
 	Page      uint `json:"page"`
 	PageLimit uint `json:"page_limit"`
 	Pages     uint `json:"pages"`
 }
 
-type UsersListResponseData struct {
-	Users []*UserOpen `json:"users"`
-	ListStatData
+type usersListResponseData struct {
+	Users []*UserBasic `json:"users"`
+	listStatData
 }
 
-type DrawingsListResponseData struct {
-	Drawings []*DrawingOpen `json:"drawings"`
-	ListStatData
+type drawingsListResponseData struct {
+	Drawings []*DrawingBasic `json:"drawings"`
+	listStatData
 }
 
-type DrawingCalculatingData struct {
+type drawingCalculatedData struct {
 	Area        float64 `json:"area"`
 	Perimeter   float64 `json:"perimeter"`
 	PointsCount int     `json:"points_count"`
@@ -31,20 +31,20 @@ type DrawingCalculatingData struct {
 	Height      float64 `json:"height"`
 }
 
-type DrawingGetResponseData struct {
-	DrawingOpen
-	DrawingCalculatingData
+type drawingGetResponseData struct {
+	DrawingBasic
+	drawingCalculatedData
 	Points   []*figure.Point            `json:"points"`
 	Measures *value.FigureMeasuresNames `json:"measures"`
 }
 
-type DrawingPostPutRequestData struct {
-	DrawingOpen
-	Points   []*PointCalculating       `json:"points"`
+type drawingPostPutRequestData struct {
+	DrawingBasic
+	Points   []*pointCalculating       `json:"points"`
 	Measures value.FigureMeasuresNames `json:"measures"`
 }
 
-type PointCalculating struct {
+type pointCalculating struct {
 	X         float64  `json:"x"`
 	Y         float64  `json:"y"`
 	Distance  float64  `json:"distance"`
@@ -52,24 +52,33 @@ type PointCalculating struct {
 	Angle     *float64 `json:"angle"`
 }
 
-type PointCalculatingWithMeasures struct {
-	Point    PointCalculating          `json:"point"`
+type pointCalculatingWithMeasures struct {
+	Point    pointCalculating          `json:"point"`
 	Measures value.FigureMeasuresNames `json:"measures"`
 }
 
-type PointWithMeasure struct {
+type pointWithMeasure struct {
 	X       float64 `json:"x"`
 	Y       float64 `json:"y"`
 	Measure string  `json:"measure"`
 }
 
-type DrawingPointsGettingResponseData struct {
-	DrawingOpen
+type drawingPointsGettingResponseData struct {
+	DrawingBasic
 	Points  []*figure.Point `json:"points"`
 	Measure string          `json:"measure"`
 }
 
-type PointsCalculatingWithMeasures struct {
-	Points   []*PointCalculating       `json:"points"`
+type pointsCalculatingWithMeasures struct {
+	Points   []*pointCalculating       `json:"points"`
 	Measures value.FigureMeasuresNames `json:"measures"`
+}
+
+type drawingPermissionCreating struct {
+	UserID    uint `json:"user_id"`
+	DrawingID uint `json:"drawing_id"`
+	Get       bool `json:"get"`
+	Change    bool `json:"change"`
+	Delete    bool `json:"delete"`
+	Share     bool `json:"share"`
 }

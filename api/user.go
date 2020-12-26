@@ -1,19 +1,21 @@
 package api
 
-type Permission byte
+type UserRole byte
 
 const (
-	AdminPermission = Permission(iota + 1)
-	UserPermission
+	RoleAdmin = UserRole(iota + 1)
+	RoleUser
 )
 
-type UserOpen struct {
-	ID         uint       `json:"id"`
-	Login      string     `json:"login"`
-	Permission Permission `json:"permission"`
+// UserBasic contains basic public information of the user.
+type UserBasic struct {
+	ID    uint     `json:"id"`
+	Login string   `json:"login"`
+	Role  UserRole `json:"role"`
 }
 
-type User struct {
-	UserOpen
+// UserConfident contains UserBasic and confident user information.
+type UserConfident struct {
+	UserBasic
 	Password string `json:"password"`
 }
