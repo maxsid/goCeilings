@@ -1,11 +1,13 @@
 package main
 
 import (
-	"github.com/maxsid/goCeilings/api"
-	"github.com/maxsid/goCeilings/api/storage"
 	"log"
 	"math/rand"
 	"time"
+
+	"github.com/maxsid/goCeilings/server/api"
+	"github.com/maxsid/goCeilings/server/common/storage/gorm"
+	"github.com/maxsid/goCeilings/server/common/storage/sqlite"
 )
 
 func main() {
@@ -13,13 +15,13 @@ func main() {
 
 	config := parseFlags()
 	if config.PasswordSalt != "" {
-		storage.HashSalt = config.PasswordSalt
+		gorm.HashSalt = config.PasswordSalt
 	}
 	if config.JWTSecret != "" {
 		api.SigningSecret = config.JWTSecret
 	}
 
-	st, err := storage.NewSQLiteStorage(config.SQLiteFile)
+	st, err := sqlite.NewSQLiteStorage(config.SQLiteFile)
 	if err != nil {
 		log.Fatalln(err)
 	}

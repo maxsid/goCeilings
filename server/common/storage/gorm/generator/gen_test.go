@@ -1,9 +1,10 @@
 package generator
 
 import (
-	"github.com/go-test/deep"
 	"math/rand"
 	"testing"
+
+	"github.com/go-test/deep"
 )
 
 func Test_getSymbolsSlice(t *testing.T) {

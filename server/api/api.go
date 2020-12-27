@@ -4,14 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/gorilla/mux"
-	"github.com/maxsid/goCeilings/drawing/raster"
-	"github.com/maxsid/goCeilings/value"
-	"github.com/urfave/negroni"
 	"log"
 	"net/http"
 	"regexp"
 	"time"
+
+	"github.com/gorilla/mux"
+	"github.com/maxsid/goCeilings/drawing/raster"
+	"github.com/maxsid/goCeilings/server/common"
+	"github.com/maxsid/goCeilings/value"
+	"github.com/urfave/negroni"
 )
 
 const ctxKeyUserStorage = ctxKey(iota)
@@ -33,7 +35,7 @@ const (
 )
 
 // Run runs the REST API server.
-func Run(addr string, st Storage) error {
+func Run(addr string, st common.Storage) error {
 	if addr == "" {
 		addr = defaultAddress
 	}
@@ -48,13 +50,13 @@ func Run(addr string, st Storage) error {
 }
 
 // addMiddlewaresToRouter adds all middlewares into router.
-func addMiddlewaresToRouter(router *mux.Router, st Storage) {
+func addMiddlewaresToRouter(router *mux.Router, st common.Storage) {
 	router.Use(getAuthorizationMiddleware(st))
 	router.Use(mux.CORSMethodMiddleware(router))
 }
 
 // addHandlersToRouter adds all REST API handlers into router.
-func addHandlersToRouter(router *mux.Router, st Storage) {
+func addHandlersToRouter(router *mux.Router, st common.Storage) {
 	router.HandleFunc("/login", loginHandler(st)).Methods(http.MethodPost)
 
 	path := "/users"
@@ -106,7 +108,7 @@ func addHandlersToRouter(router *mux.Router, st Storage) {
 // drawingCreatingHandler handles creating one drawing by drawingPostPutRequestData body.
 // Handles: POST /drawings
 func drawingCreatingHandler(w http.ResponseWriter, req *http.Request) {
-	var storage UserStorage
+	var storage common.UserStorage
 	if storage = getUserStorageOrWriteError(w, req); storage == nil {
 		return
 	}
@@ -120,7 +122,7 @@ func drawingCreatingHandler(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "Bad Request: Wrong JSON body", http.StatusBadRequest)
 		return
 	}
-	drawing := Drawing{DrawingBasic: requestData.DrawingBasic, GGDrawing: *raster.NewEmptyGGDrawing()}
+	drawing := common.Drawing{DrawingBasic: requestData.DrawingBasic, GGDrawing: *raster.NewEmptyGGDrawing()}
 	drawing.Measures = requestData.Measures.ToFigureMeasures(drawing.Measures)
 
 	if err := drawing.AddPoints(getPointsFromRequestPoint(requestData.Points...)...); writeError(w, err) {
@@ -140,7 +142,7 @@ func drawingCreatingHandler(w http.ResponseWriter, req *http.Request) {
 // drawingDeletingHandler handles deleting one drawing by its ID.
 // Handles: DELETE /drawings/{id}
 func drawingDeletingHandler(w http.ResponseWriter, req *http.Request) {
-	var storage UserStorage
+	var storage common.UserStorage
 	if storage = getUserStorageOrWriteError(w, req); storage == nil {
 		return
 	}
@@ -206,7 +208,7 @@ func drawingImageHandler(w http.ResponseWriter, req *http.Request) {
 // and presents it as drawingsListResponseData.
 // Handles: GET /drawings
 func drawingsListGettingHandler(w http.ResponseWriter, req *http.Request) {
-	var storage UserStorage
+	var storage common.UserStorage
 	if storage = getUserStorageOrWriteError(w, req); storage == nil {
 		return
 	}
@@ -221,7 +223,7 @@ func drawingsListGettingHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	respData := drawingsListResponseData{Drawings: make([]*DrawingBasic, 0), listStatData: *stat}
+	respData := drawingsListResponseData{Drawings: make([]*common.DrawingBasic, 0), listStatData: *stat}
 	if amount > 0 {
 		respData.Drawings, err = storage.GetDrawingsList(user.ID, respData.Page, respData.PageLimit)
 		if writeError(w, err) {
@@ -260,7 +262,7 @@ func drawingPointsAddingHandler(w http.ResponseWriter, req *http.Request) {
 
 	drawing.Measures = dmCopy
 
-	var storage UserStorage
+	var storage common.UserStorage
 	if storage = getUserStorageOrWriteError(w, req); storage == nil {
 		return
 	}
@@ -287,7 +289,7 @@ func drawingPointDeletingHandler(w http.ResponseWriter, req *http.Request) {
 
 	drawing.Points = append(drawing.Points[:pointIndex], drawing.Points[pointIndex+1:]...)
 
-	var storage UserStorage
+	var storage common.UserStorage
 	if storage = getUserStorageOrWriteError(w, req); storage == nil {
 		return
 	}
@@ -371,7 +373,7 @@ func drawingPointUpdatingHandler(w http.ResponseWriter, req *http.Request) {
 
 	drawing.Measures = drawingMeasures
 
-	var storage UserStorage
+	var storage common.UserStorage
 	if storage = getUserStorageOrWriteError(w, req); storage == nil {
 		return
 	}
@@ -383,7 +385,7 @@ func drawingPointUpdatingHandler(w http.ResponseWriter, req *http.Request) {
 
 // getAuthorizationMiddleware returns middleware authorization handler.
 // Handles: Middleware
-func getAuthorizationMiddleware(st Storage) mux.MiddlewareFunc {
+func getAuthorizationMiddleware(st common.Storage) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			var withoutLoginURLReg = regexp.MustCompile(`/login`)
@@ -424,9 +426,9 @@ func getNegroniHandler(router http.Handler) http.Handler {
 
 // loginHandler returns authentication handler.
 // Handles: POST /login
-func loginHandler(getter UserGetter) http.HandlerFunc {
+func loginHandler(getter common.UserGetter) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
-		var userAuth UserConfident
+		var userAuth common.UserConfident
 		if err := unmarshalReaderContent(req.Body, &userAuth); writeError(w, err) {
 			return
 		}
@@ -468,9 +470,9 @@ func permissionCreatingHandler(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 	}
-	perm := DrawingPermission{
-		User:    &UserBasic{ID: body.UserID},
-		Drawing: &DrawingBasic{ID: body.DrawingID},
+	perm := common.DrawingPermission{
+		User:    &common.UserBasic{ID: body.UserID},
+		Drawing: &common.DrawingBasic{ID: body.DrawingID},
 		Get:     body.Get,
 		Change:  body.Change,
 		Delete:  body.Delete,
@@ -541,12 +543,12 @@ func permissionsOfDrawingGettingHandler(w http.ResponseWriter, req *http.Request
 // userCreatingHandler handles the user creating by UserConfident body.
 // Handles: POST /uses
 func userCreatingHandler(w http.ResponseWriter, req *http.Request) {
-	var storage UserStorage
+	var storage common.UserStorage
 	if storage = getUserStorageOrWriteError(w, req); storage == nil {
 		return
 	}
 
-	var user UserConfident
+	var user common.UserConfident
 	if err := unmarshalReaderContent(req.Body, &user); writeError(w, err) {
 		return
 	}
@@ -555,7 +557,7 @@ func userCreatingHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	if user.Role == 0 {
-		user.Role = RoleUser
+		user.Role = common.RoleUser
 	}
 	if err := storage.CreateUsers(&user); writeError(w, err) {
 		return
@@ -567,7 +569,7 @@ func userCreatingHandler(w http.ResponseWriter, req *http.Request) {
 // userDeletingHandler handles removing of one user by ID.
 // Handles: DELETE /users/{id}
 func userDeletingHandler(w http.ResponseWriter, req *http.Request) {
-	var storage UserStorage
+	var storage common.UserStorage
 	if storage = getUserStorageOrWriteError(w, req); storage == nil {
 		return
 	}
@@ -585,7 +587,7 @@ func userDeletingHandler(w http.ResponseWriter, req *http.Request) {
 // userGettingHandler handles getting of one user by ID.
 // Handles: GET /user/{id}
 func userGettingHandler(w http.ResponseWriter, req *http.Request) {
-	var storage UserStorage
+	var storage common.UserStorage
 	if storage = getUserStorageOrWriteError(w, req); storage == nil {
 		return
 	}
@@ -606,7 +608,7 @@ func userGettingHandler(w http.ResponseWriter, req *http.Request) {
 // usersListHandler handles request of getting users list.
 // Handles: GET /users
 func usersListHandler(w http.ResponseWriter, req *http.Request) {
-	var storage UserStorage
+	var storage common.UserStorage
 	if storage = getUserStorageOrWriteError(w, req); storage == nil {
 		return
 	}
@@ -632,7 +634,7 @@ func usersListHandler(w http.ResponseWriter, req *http.Request) {
 // userUpdatingHandler handles updating of one user by ID and UserConfident body.
 // Handles: PUT /users/{id}
 func userUpdatingHandler(w http.ResponseWriter, req *http.Request) {
-	var storage UserStorage
+	var storage common.UserStorage
 	if storage = getUserStorageOrWriteError(w, req); storage == nil {
 		return
 	}
@@ -642,7 +644,7 @@ func userUpdatingHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	var user UserConfident
+	var user common.UserConfident
 	if err := unmarshalReaderContent(req.Body, &user); writeError(w, err) {
 		return
 	}

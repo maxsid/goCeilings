@@ -5,9 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/gorilla/mux"
-	"github.com/maxsid/goCeilings/figure"
-	"github.com/maxsid/goCeilings/value"
 	"io"
 	"io/ioutil"
 	"math"
@@ -15,6 +12,11 @@ import (
 	"net/url"
 	"reflect"
 	"strconv"
+
+	"github.com/gorilla/mux"
+	"github.com/maxsid/goCeilings/figure"
+	"github.com/maxsid/goCeilings/server/common"
+	"github.com/maxsid/goCeilings/value"
 )
 
 const (
@@ -37,8 +39,8 @@ func getCtxValue(ctx context.Context, key ctxKey) (interface{}, error) {
 
 // getDrawingByRequestOrWriteError gets Drawing from database by its ID in request path.
 // Second value of the returning tuple contains successfulness of the operation.
-func getDrawingByRequestOrWriteError(w http.ResponseWriter, req *http.Request) (*Drawing, bool) {
-	storage, drawingID := (UserStorage)(nil), uint(0)
+func getDrawingByRequestOrWriteError(w http.ResponseWriter, req *http.Request) (*common.Drawing, bool) {
+	storage, drawingID := (common.UserStorage)(nil), uint(0)
 	if storage = getUserStorageOrWriteError(w, req); storage == nil {
 		return nil, false
 	}
@@ -55,7 +57,7 @@ func getDrawingByRequestOrWriteError(w http.ResponseWriter, req *http.Request) (
 
 // getDrawingByRequestOrWriteError reads index of the point from request path.
 // Second value of the returning tuple contains successfulness of the operation.
-func getPointIndexByRequestOrWriteError(w http.ResponseWriter, req *http.Request, drawing *Drawing) (int, bool) {
+func getPointIndexByRequestOrWriteError(w http.ResponseWriter, req *http.Request, drawing *common.Drawing) (int, bool) {
 	pointIndex := 0
 	if err := parsePathValue(mux.Vars(req), pathVarPointNumber, &pointIndex); writeError(w, err) {
 		return 0, false
@@ -71,17 +73,18 @@ func getPointIndexByRequestOrWriteError(w http.ResponseWriter, req *http.Request
 func getPointsFromRequestPoint(points ...*pointCalculating) []*figure.Point {
 	resultPoints := make([]*figure.Point, len(points))
 	for i, p := range points {
-		if p.Direction != nil && p.Distance != 0 {
+		switch {
+		case p.Direction != nil && p.Distance != 0:
 			resultPoints[i] = figure.NewCalculatedPoint(&figure.DirectionCalculator{
 				Direction: *p.Direction,
 				Distance:  p.Distance,
 			})
-		} else if p.Angle != nil && p.Distance != 0 {
+		case p.Angle != nil && p.Distance != 0:
 			resultPoints[i] = figure.NewCalculatedPoint(&figure.AngleCalculator{
 				Angle:    *p.Angle,
 				Distance: p.Distance,
 			})
-		} else {
+		default:
 			resultPoints[i] = figure.NewPoint(p.X, p.Y)
 		}
 	}
@@ -102,12 +105,12 @@ func getSettable(v interface{}) (*reflect.Value, error) {
 
 // getUserStorageOrWriteError gets UserStorage from request context.
 // With errors writes into http.ResponseWriter via writeError function and returns nil.
-func getUserStorageOrWriteError(w http.ResponseWriter, req *http.Request) UserStorage {
+func getUserStorageOrWriteError(w http.ResponseWriter, req *http.Request) common.UserStorage {
 	st, err := getCtxValue(req.Context(), ctxKeyUserStorage)
 	if writeError(w, err) {
 		return nil
 	}
-	storage, ok := st.(UserStorage)
+	storage, ok := st.(common.UserStorage)
 	if !ok {
 		writeError(w, fmt.Errorf("%w: got a wrong value type", ErrCouldNotReadCtxValue))
 		return nil
@@ -247,11 +250,11 @@ func readLengthMeasureAndPrecision(vars url.Values, measure *value.Measure, prec
 		return err
 	}
 	if measureName != "" {
-		if readMeasure := value.LengthMeasureByName(measureName); readMeasure == 0 {
+		readMeasure := value.LengthMeasureByName(measureName)
+		if readMeasure == 0 {
 			return fmt.Errorf("%w of measure (%s)", ErrCouldNotReadURLParameter, urlParamMeasure)
-		} else {
-			*measure = readMeasure
 		}
+		*measure = readMeasure
 	}
 	return nil
 }

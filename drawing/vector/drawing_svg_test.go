@@ -1,11 +1,12 @@
 package vector
 
 import (
-	. "github.com/maxsid/goCeilings/figure"
 	"io/ioutil"
 	"log"
 	"os"
 	"testing"
+
+	. "github.com/maxsid/goCeilings/figure"
 )
 
 func TestDrawing_Draw(t *testing.T) {

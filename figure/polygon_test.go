@@ -1,10 +1,11 @@
 package figure
 
 import (
-	"github.com/go-test/deep"
-	. "github.com/maxsid/goCeilings/value"
 	"reflect"
 	"testing"
+
+	"github.com/go-test/deep"
+	. "github.com/maxsid/goCeilings/value"
 )
 
 var example1 = []*Point{

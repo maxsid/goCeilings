@@ -3,12 +3,13 @@ package vector
 import (
 	"bytes"
 	"fmt"
+	"io"
+	"strings"
+
 	svg "github.com/ajstarks/svgo/float"
 	"github.com/maxsid/goCeilings/drawing/naming"
 	. "github.com/maxsid/goCeilings/figure"
 	. "github.com/maxsid/goCeilings/value"
-	"io"
-	"strings"
 )
 
 const (

@@ -1,4 +1,4 @@
-package api
+package common
 
 import "github.com/maxsid/goCeilings/drawing/raster"
 

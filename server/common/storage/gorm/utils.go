@@ -1,4 +1,4 @@
-package storage
+package gorm
 
 import (
 	"crypto/sha256"

@@ -2,9 +2,10 @@ package figure
 
 import (
 	"fmt"
+	"testing"
+
 	"github.com/go-test/deep"
 	. "github.com/maxsid/goCeilings/value"
-	"testing"
 )
 
 func TestDirectionCalculatorCircle(t *testing.T) {
@@ -14,9 +15,8 @@ func TestDirectionCalculatorCircle(t *testing.T) {
 		direction float64
 	}
 	type testData struct {
-		name    string
-		args    args
-		wantErr bool
+		name string
+		args args
 	}
 	tests := make([]testData, 0)
 	cp, distance := &Point{X: 0, Y: 0}, 150.0

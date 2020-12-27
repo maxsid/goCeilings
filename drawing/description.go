@@ -36,14 +36,13 @@ func (d Description) ToStringSlice() []string {
 }
 
 func (d *Description) Scan(value interface{}) error {
-	var data []byte
-	switch value.(type) {
-	case []byte:
-		data = value.([]byte)
-	case string:
-		data = []byte(value.(string))
-	default:
-		return ErrWrongArgumentType
+	data, ok := value.([]byte)
+	if !ok {
+		sData, ok := value.(string)
+		if !ok {
+			return ErrWrongArgumentType
+		}
+		data = []byte(sData)
 	}
 	return json.Unmarshal(data, d)
 }

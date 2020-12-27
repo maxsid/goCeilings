@@ -1,8 +1,9 @@
 package drawing
 
 import (
-	"github.com/go-test/deep"
 	"testing"
+
+	"github.com/go-test/deep"
 )
 
 func TestNewUnionDescription(t *testing.T) {

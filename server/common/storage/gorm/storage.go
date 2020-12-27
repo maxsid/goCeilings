@@ -1,18 +1,20 @@
-package storage
+package gorm
 
 import (
 	"errors"
-	"github.com/maxsid/goCeilings/api"
-	"github.com/maxsid/goCeilings/api/storage/generator"
-	"gorm.io/gorm"
 	"log"
+
+	"github.com/maxsid/goCeilings/server/api"
+	"github.com/maxsid/goCeilings/server/common"
+	"github.com/maxsid/goCeilings/server/common/storage/gorm/generator"
+	"gorm.io/gorm"
 )
 
 type Storage struct {
 	db *gorm.DB
 }
 
-func newDatabase(dialect gorm.Dialector) (st *Storage, err error) {
+func NewDatabase(dialect gorm.Dialector) (st *Storage, err error) {
 	st = &Storage{}
 	st.db, err = gorm.Open(dialect, &gorm.Config{
 		SkipDefaultTransaction: true,
@@ -26,7 +28,7 @@ func newDatabase(dialect gorm.Dialector) (st *Storage, err error) {
 	return
 }
 
-func (s *Storage) GetUserStorage(user *api.UserBasic) (api.UserStorage, error) {
+func (s *Storage) GetUserStorage(user *common.UserBasic) (common.UserStorage, error) {
 	return &UserStorage{
 		Storage: s,
 		user:    user,
@@ -42,7 +44,7 @@ func (s *Storage) CreateAdmin(force bool) error {
 	)
 	if !force {
 		var adminsCount int64
-		if err := s.db.Find(&userModel{}, "role = ?", api.RoleAdmin).Count(&adminsCount).Error; err != nil {
+		if err := s.db.Find(&userModel{}, "role = ?", common.RoleAdmin).Count(&adminsCount).Error; err != nil {
 			return err
 		}
 		if adminsCount > 0 {
@@ -55,7 +57,7 @@ func (s *Storage) CreateAdmin(force bool) error {
 	admin := userModel{}
 	admin.Login = "admin-" + generator.GeneratePassword(8, 0, 0, 0)
 	admin.Password = getHexHash(pass, HashSalt)
-	admin.Role = api.RoleAdmin
+	admin.Role = common.RoleAdmin
 	if err := s.db.Create(&admin).Error; err != nil {
 		return err
 	}
@@ -63,7 +65,7 @@ func (s *Storage) CreateAdmin(force bool) error {
 	return nil
 }
 
-func (s *Storage) GetUser(login, pass string) (*api.UserConfident, error) {
+func (s *Storage) GetUser(login, pass string) (*common.UserConfident, error) {
 	pass = getHexHash(pass, HashSalt)
 	var user userModel
 	if err := s.db.First(&user, "login = ? and password = ?", login, pass).Error; err != nil {
@@ -72,10 +74,10 @@ func (s *Storage) GetUser(login, pass string) (*api.UserConfident, error) {
 		}
 		return nil, err
 	}
-	return user.ToApi(), nil
+	return user.ToAPI(), nil
 }
 
-func (s *Storage) GetUserByID(id uint) (*api.UserConfident, error) {
+func (s *Storage) GetUserByID(id uint) (*common.UserConfident, error) {
 	var user userModel
 	if err := s.db.First(&user, "id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -83,15 +85,15 @@ func (s *Storage) GetUserByID(id uint) (*api.UserConfident, error) {
 		}
 		return nil, err
 	}
-	return user.ToApi(), nil
+	return user.ToAPI(), nil
 }
 
-func (s *Storage) CreateUsers(users ...*api.UserConfident) error {
+func (s *Storage) CreateUsers(users ...*common.UserConfident) error {
 	records := make([]*userModel, len(users))
 	for i, u := range users {
 		ru := &userModel{}
 		records[i] = ru
-		ru.UpdateFromApi(u)
+		ru.FromAPI(u)
 		ru.Password = getHexHash(ru.Password, HashSalt)
 	}
 	if err := s.db.Create(&records).Error; err != nil {
@@ -100,12 +102,12 @@ func (s *Storage) CreateUsers(users ...*api.UserConfident) error {
 	return nil
 }
 
-func (s *Storage) UpdateUser(user *api.UserConfident) error {
+func (s *Storage) UpdateUser(user *common.UserConfident) error {
 	if user.Password != "" {
 		user.Password = getHexHash(user.Password, HashSalt)
 	}
 	record := userModel{}
-	record.UpdateFromApi(user)
+	record.FromAPI(user)
 	if tx := s.db.Model(&record).Where("id = ?", user.ID).Updates(record); tx.Error != nil {
 		return tx.Error
 	} else if tx.RowsAffected == 0 {
@@ -123,9 +125,9 @@ func (s *Storage) RemoveUser(id uint) error {
 	return nil
 }
 
-func (s *Storage) GetUsersList(page, pageLimit uint) ([]*api.UserBasic, error) {
+func (s *Storage) GetUsersList(page, pageLimit uint) ([]*common.UserBasic, error) {
 	if pageLimit == 0 {
-		return make([]*api.UserBasic, 0), nil
+		return make([]*common.UserBasic, 0), nil
 	}
 	offset := (page - 1) * pageLimit
 	rows, err := s.db.Model(&userModel{}).Offset(int(offset)).Limit(int(pageLimit)).Order("id asc").Rows()
@@ -133,12 +135,12 @@ func (s *Storage) GetUsersList(page, pageLimit uint) ([]*api.UserBasic, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	user, out := new(userModel), make([]*api.UserBasic, 0)
+	user, out := new(userModel), make([]*common.UserBasic, 0)
 	for rows.Next() {
 		if err := s.db.ScanRows(rows, user); err != nil {
 			return nil, err
 		}
-		out = append(out, &user.ToApi().UserBasic)
+		out = append(out, &user.ToAPI().UserBasic)
 	}
 	return out, nil
 }
@@ -151,11 +153,11 @@ func (s *Storage) UsersAmount() (uint, error) {
 	return uint(count), nil
 }
 
-func (s *Storage) CreateDrawings(userID uint, drawings ...*api.Drawing) error {
+func (s *Storage) CreateDrawings(userID uint, drawings ...*common.Drawing) error {
 	rDrawings, rDrawingPermissions := make([]*drawingModel, len(drawings)), make([]*drawingPermissionModel, len(drawings))
 	for i, d := range drawings {
 		dRecord := &drawingModel{}
-		dRecord.UpdateFromApi(d)
+		dRecord.FromAPI(d)
 		rDrawings[i] = dRecord
 	}
 	return s.db.Transaction(func(db *gorm.DB) error {
@@ -172,7 +174,7 @@ func (s *Storage) CreateDrawings(userID uint, drawings ...*api.Drawing) error {
 	})
 }
 
-func (s *Storage) GetDrawing(id uint) (*api.Drawing, error) {
+func (s *Storage) GetDrawing(id uint) (*common.Drawing, error) {
 	var drawing drawingModel
 	if err := s.db.First(&drawing, "id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -180,10 +182,10 @@ func (s *Storage) GetDrawing(id uint) (*api.Drawing, error) {
 		}
 		return nil, err
 	}
-	return drawing.ToApi(), nil
+	return drawing.ToAPI(), nil
 }
 
-func (s *Storage) getDrawingOfUser(userID, drawingID uint) (*api.Drawing, error) {
+func (s *Storage) getDrawingOfUser(userID, drawingID uint) (*common.Drawing, error) {
 	var permission drawingPermissionModel
 	err := s.db.Preload("Drawing").First(&permission, "drawing_id = ? AND user_id = ?", drawingID, userID).Error
 	if err != nil {
@@ -192,12 +194,12 @@ func (s *Storage) getDrawingOfUser(userID, drawingID uint) (*api.Drawing, error)
 		}
 		return nil, err
 	}
-	return permission.Drawing.ToApi(), nil
+	return permission.Drawing.ToAPI(), nil
 }
 
-func (s *Storage) UpdateDrawing(drawing *api.Drawing) error {
+func (s *Storage) UpdateDrawing(drawing *common.Drawing) error {
 	sDrawing := drawingModel{}
-	sDrawing.UpdateFromApi(drawing)
+	sDrawing.FromAPI(drawing)
 	if tx := s.db.Model(&drawingModel{}).Where("id = ?", sDrawing.ID).Updates(&sDrawing); tx.Error != nil {
 		return tx.Error
 	} else if tx.RowsAffected == 0 {
@@ -206,7 +208,7 @@ func (s *Storage) UpdateDrawing(drawing *api.Drawing) error {
 	return nil
 }
 
-func (s *Storage) updateDrawingOfUser(userID uint, drawing *api.Drawing) error {
+func (s *Storage) updateDrawingOfUser(userID uint, drawing *common.Drawing) error {
 	if err := s.db.First(&drawingPermissionModel{}, "drawing_id = ? AND user_id = ?", drawing.ID, userID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return api.ErrDrawingNotFound
@@ -214,7 +216,7 @@ func (s *Storage) updateDrawingOfUser(userID uint, drawing *api.Drawing) error {
 		return err
 	}
 	d := drawingModel{}
-	d.UpdateFromApi(drawing)
+	d.FromAPI(drawing)
 	if tx := s.db.Model(d).Where("id = ?", drawing.ID).Updates(d); tx.Error != nil {
 		return tx.Error
 	} else if tx.RowsAffected == 0 {
@@ -248,21 +250,21 @@ func (s *Storage) removeDrawingOfUser(userID, drawingID uint) error {
 	return s.RemoveDrawing(drawingID)
 }
 
-func (s *Storage) GetDrawingsList(userID, page, pageLimit uint) ([]*api.DrawingBasic, error) {
+func (s *Storage) GetDrawingsList(userID, page, pageLimit uint) ([]*common.DrawingBasic, error) {
 	if pageLimit == 0 {
-		return make([]*api.DrawingBasic, 0), nil
+		return make([]*common.DrawingBasic, 0), nil
 	}
 	offset := int((page - 1) * pageLimit)
 	var permissions []*drawingPermissionModel
 	err := s.db.Preload("Drawing").Offset(offset).Limit(int(pageLimit)).Order("created_at desc").Find(&permissions, "user_id = ?", userID).Error
 	if err != nil {
 		return nil, err
-	} else if permissions == nil || len(permissions) == 0 {
+	} else if len(permissions) == 0 {
 		return nil, api.ErrDrawingNotFound
 	}
-	out := make([]*api.DrawingBasic, len(permissions))
+	out := make([]*common.DrawingBasic, len(permissions))
 	for i, p := range permissions {
-		out[i] = &p.Drawing.ToApi().DrawingBasic
+		out[i] = &p.Drawing.ToAPI().DrawingBasic
 	}
 	return out, nil
 }
@@ -275,7 +277,7 @@ func (s *Storage) DrawingsAmount(userID uint) (uint, error) {
 	return uint(count), nil
 }
 
-func (s *Storage) GetDrawingPermission(userID, drawingID uint) (*api.DrawingPermission, error) {
+func (s *Storage) GetDrawingPermission(userID, drawingID uint) (*common.DrawingPermission, error) {
 	var permission drawingPermissionModel
 	tx := s.db.Preload("User").Preload("Drawing").First(&permission, "user_id = ? AND drawing_id = ?", userID, drawingID)
 	if tx.Error != nil {
@@ -284,38 +286,38 @@ func (s *Storage) GetDrawingPermission(userID, drawingID uint) (*api.DrawingPerm
 		}
 		return nil, tx.Error
 	}
-	return permission.ToApi(), nil
+	return permission.ToAPI(), nil
 }
 
-func (s *Storage) GetDrawingsPermissionsOfDrawing(drawingID uint) ([]*api.DrawingPermission, error) {
+func (s *Storage) GetDrawingsPermissionsOfDrawing(drawingID uint) ([]*common.DrawingPermission, error) {
 	var permissions []*drawingPermissionModel
 	err := s.db.Preload("User").Preload("Drawing").Order("created_at DESC").Find(&permissions, "drawing_id = ?", drawingID).Error
 	if err != nil {
 		return nil, err
 	}
-	out := make([]*api.DrawingPermission, len(permissions))
+	out := make([]*common.DrawingPermission, len(permissions))
 	for i, p := range permissions {
-		out[i] = p.ToApi()
+		out[i] = p.ToAPI()
 	}
 	return out, nil
 }
 
-func (s *Storage) GetDrawingsPermissionsOfUser(userID uint) ([]*api.DrawingPermission, error) {
+func (s *Storage) GetDrawingsPermissionsOfUser(userID uint) ([]*common.DrawingPermission, error) {
 	var permissions []*drawingPermissionModel
 	err := s.db.Preload("User").Preload("Drawing").Order("created_at DESC").Find(&permissions, "user_id = ?", userID).Error
 	if err != nil {
 		return nil, err
 	}
-	out := make([]*api.DrawingPermission, len(permissions))
+	out := make([]*common.DrawingPermission, len(permissions))
 	for i, p := range permissions {
-		out[i] = p.ToApi()
+		out[i] = p.ToAPI()
 	}
 	return out, nil
 }
 
-func (s *Storage) CreateDrawingPermission(permission *api.DrawingPermission) error {
+func (s *Storage) CreateDrawingPermission(permission *common.DrawingPermission) error {
 	p := drawingPermissionModel{}
-	p.UpdateFromApi(permission)
+	p.FromAPI(permission)
 	p.Owner = false
 	if !p.IsFullFalse() {
 		if err := s.db.Create(&p).Error; err != nil {
@@ -325,9 +327,9 @@ func (s *Storage) CreateDrawingPermission(permission *api.DrawingPermission) err
 	return nil
 }
 
-func (s *Storage) UpdateDrawingPermission(permission *api.DrawingPermission) error {
+func (s *Storage) UpdateDrawingPermission(permission *common.DrawingPermission) error {
 	p := drawingPermissionModel{}
-	p.UpdateFromApi(permission)
+	p.FromAPI(permission)
 	p.Owner = false
 	tx := s.db.Model(&p).Select("Get", "Change", "Delete", "Share").Where("user_id = ? AND drawing_id = ? AND owner = ?", p.UserID, p.DrawingID, false).Updates(&p)
 	if tx.Error != nil {

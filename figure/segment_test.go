@@ -1,8 +1,9 @@
 package figure
 
 import (
-	. "github.com/maxsid/goCeilings/value"
 	"testing"
+
+	. "github.com/maxsid/goCeilings/value"
 )
 
 func TestLine_Distance(t *testing.T) {

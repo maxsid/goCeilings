@@ -2,12 +2,13 @@ package raster
 
 import (
 	"bytes"
-	"github.com/fogleman/gg"
-	. "github.com/maxsid/goCeilings/figure"
-	"golang.org/x/image/colornames"
 	"image/png"
 	"reflect"
 	"testing"
+
+	"github.com/fogleman/gg"
+	. "github.com/maxsid/goCeilings/figure"
+	"golang.org/x/image/colornames"
 )
 
 func drawExamples(examples [][]*Point, t *testing.T) {

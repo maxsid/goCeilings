@@ -41,15 +41,16 @@ func writeError(w http.ResponseWriter, err error) bool {
 		return false
 	}
 	respMsg, respStatus, printPanic := "", 0, false
-	if err == nil {
+	switch {
+	case err == nil:
 		return false
-	} else if multiTargetErrIs(err, ErrCouldNotReadPathVar, ErrCouldNotReadURLParameter, ErrAlreadyExist, ErrBadRequestData) {
+	case multiTargetErrIs(err, ErrCouldNotReadPathVar, ErrCouldNotReadURLParameter, ErrAlreadyExist, ErrBadRequestData):
 		respStatus, respMsg = http.StatusBadRequest, "bad request: "+err.Error()
-	} else if multiTargetErrIs(err, ErrNotFound) {
+	case multiTargetErrIs(err, ErrNotFound):
 		respStatus, respMsg = http.StatusNotFound, "not found: "+err.Error()
-	} else if multiTargetErrIs(err, ErrOperationNotAllowed) {
+	case multiTargetErrIs(err, ErrOperationNotAllowed):
 		respStatus, respMsg = http.StatusForbidden, "forbidden: "+err.Error()
-	} else {
+	default:
 		printPanic, respStatus, respMsg = true, http.StatusInternalServerError, "internal server error"
 	}
 	http.Error(w, respMsg, respStatus)

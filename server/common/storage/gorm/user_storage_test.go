@@ -1,11 +1,12 @@
-package storage
+package gorm
 
 import (
-	"github.com/maxsid/goCeilings/api"
-	"github.com/maxsid/goCeilings/api/storage/generator"
-	"github.com/maxsid/goCeilings/drawing/raster"
 	"math/rand"
 	"testing"
+
+	"github.com/maxsid/goCeilings/drawing/raster"
+	"github.com/maxsid/goCeilings/server/common"
+	"github.com/maxsid/goCeilings/server/common/storage/gorm/generator"
 )
 
 func TestUserStorage_checkPermission(t *testing.T) {
@@ -14,11 +15,11 @@ func TestUserStorage_checkPermission(t *testing.T) {
 
 	type fields struct {
 		Storage *Storage
-		user    *api.UserBasic
+		user    *common.UserBasic
 	}
 	type args struct {
 		drawingID uint
-		f         func(p *api.DrawingPermission) bool
+		f         func(p *common.DrawingPermission) bool
 	}
 	tests := []struct {
 		name    string
@@ -29,24 +30,24 @@ func TestUserStorage_checkPermission(t *testing.T) {
 		{
 			name:   "allowed for admin",
 			fields: fields{Storage: storage, user: &users[1].UserBasic},
-			args:   args{1, func(p *api.DrawingPermission) bool { return true }},
+			args:   args{1, func(p *common.DrawingPermission) bool { return true }},
 		},
 		{
 			name:    "Not allowed for non-admin",
 			fields:  fields{Storage: storage, user: &users[2].UserBasic},
-			args:    args{4, func(p *api.DrawingPermission) bool { return true }},
+			args:    args{4, func(p *common.DrawingPermission) bool { return true }},
 			wantErr: true,
 		},
 		{
 			name:    "Function not allows",
 			fields:  fields{Storage: storage, user: &users[2].UserBasic},
-			args:    args{1, func(p *api.DrawingPermission) bool { return false }},
+			args:    args{1, func(p *common.DrawingPermission) bool { return false }},
 			wantErr: true,
 		},
 		{
 			name:   "Function allows",
 			fields: fields{Storage: storage, user: &users[2].UserBasic},
-			args:   args{1, func(p *api.DrawingPermission) bool { return true }},
+			args:   args{1, func(p *common.DrawingPermission) bool { return true }},
 		},
 	}
 	for _, tt := range tests {
@@ -68,10 +69,10 @@ func TestUserStorage_GetUserStorage(t *testing.T) {
 
 	type fields struct {
 		Storage *Storage
-		user    *api.UserBasic
+		user    *common.UserBasic
 	}
 	type args struct {
-		user *api.UserBasic
+		user *common.UserBasic
 	}
 	tests := []struct {
 		name    string
@@ -111,7 +112,7 @@ func TestUserStorage_GetUser(t *testing.T) {
 
 	type fields struct {
 		Storage *Storage
-		user    *api.UserBasic
+		user    *common.UserBasic
 	}
 	type args struct {
 		in0 string
@@ -150,7 +151,7 @@ func TestUserStorage_GetUserByID(t *testing.T) {
 
 	type fields struct {
 		Storage *Storage
-		user    *api.UserBasic
+		user    *common.UserBasic
 	}
 	type args struct {
 		id uint
@@ -199,10 +200,10 @@ func TestUserStorage_CreateUsers(t *testing.T) {
 
 	type fields struct {
 		Storage *Storage
-		user    *api.UserBasic
+		user    *common.UserBasic
 	}
 	type args struct {
-		users []*api.UserConfident
+		users []*common.UserConfident
 	}
 	tests := []struct {
 		name    string
@@ -213,12 +214,12 @@ func TestUserStorage_CreateUsers(t *testing.T) {
 		{
 			name:   "allowed for admin",
 			fields: fields{Storage: storage, user: &users[1].UserBasic},
-			args:   args{users: []*api.UserConfident{{UserBasic: api.UserBasic{Login: "maxim2", Role: api.RoleUser}, Password: "pass"}}},
+			args:   args{users: []*common.UserConfident{{UserBasic: common.UserBasic{Login: "maxim2", Role: common.RoleUser}, Password: "pass"}}},
 		},
 		{
 			name:    "not allowed for non-admin",
 			fields:  fields{Storage: storage, user: &users[3].UserBasic},
-			args:    args{users: []*api.UserConfident{{UserBasic: api.UserBasic{Login: "maxim3", Role: api.RoleUser}, Password: "pass"}}},
+			args:    args{users: []*common.UserConfident{{UserBasic: common.UserBasic{Login: "maxim3", Role: common.RoleUser}, Password: "pass"}}},
 			wantErr: true,
 		},
 	}
@@ -241,10 +242,10 @@ func TestUserStorage_UpdateUser(t *testing.T) {
 
 	type fields struct {
 		Storage *Storage
-		user    *api.UserBasic
+		user    *common.UserBasic
 	}
 	type args struct {
-		user *api.UserConfident
+		user *common.UserConfident
 	}
 	tests := []struct {
 		name    string
@@ -255,17 +256,17 @@ func TestUserStorage_UpdateUser(t *testing.T) {
 		{
 			name:   "allowed for admin",
 			fields: fields{Storage: storage, user: &users[1].UserBasic},
-			args:   args{&api.UserConfident{UserBasic: api.UserBasic{ID: 2, Login: "oleg4", Role: api.RoleUser}, Password: "password22"}},
+			args:   args{&common.UserConfident{UserBasic: common.UserBasic{ID: 2, Login: "oleg4", Role: common.RoleUser}, Password: "password22"}},
 		},
 		{
 			name:   "allowed for a user with the same ID",
 			fields: fields{Storage: storage, user: &users[2].UserBasic},
-			args:   args{&api.UserConfident{UserBasic: api.UserBasic{ID: 2, Login: "oleg8", Role: api.RoleUser}, Password: "password22"}},
+			args:   args{&common.UserConfident{UserBasic: common.UserBasic{ID: 2, Login: "oleg8", Role: common.RoleUser}, Password: "password22"}},
 		},
 		{
 			name:    "not allowed for non-admin",
 			fields:  fields{Storage: storage, user: &users[3].UserBasic},
-			args:    args{&api.UserConfident{UserBasic: api.UserBasic{ID: 2, Login: "oleg5", Role: api.RoleUser}, Password: "password22"}},
+			args:    args{&common.UserConfident{UserBasic: common.UserBasic{ID: 2, Login: "oleg5", Role: common.RoleUser}, Password: "password22"}},
 			wantErr: true,
 		},
 	}
@@ -288,7 +289,7 @@ func TestUserStorage_RemoveUser(t *testing.T) {
 
 	type fields struct {
 		Storage *Storage
-		user    *api.UserBasic
+		user    *common.UserBasic
 	}
 	type args struct {
 		id uint
@@ -330,7 +331,7 @@ func TestUserStorage_GetUsersList(t *testing.T) {
 
 	type fields struct {
 		Storage *Storage
-		user    *api.UserBasic
+		user    *common.UserBasic
 	}
 	type args struct {
 		page      uint
@@ -374,7 +375,7 @@ func TestUserStorage_UsersAmount(t *testing.T) {
 
 	type fields struct {
 		Storage *Storage
-		user    *api.UserBasic
+		user    *common.UserBasic
 	}
 	tests := []struct {
 		name    string
@@ -411,11 +412,11 @@ func TestUserStorage_CreateDrawings(t *testing.T) {
 
 	type fields struct {
 		Storage *Storage
-		user    *api.UserBasic
+		user    *common.UserBasic
 	}
 	type args struct {
 		userID   uint
-		drawings []*api.Drawing
+		drawings []*common.Drawing
 	}
 	tests := []struct {
 		name    string
@@ -428,7 +429,7 @@ func TestUserStorage_CreateDrawings(t *testing.T) {
 			fields: fields{Storage: storage, user: &users[1].UserBasic},
 			args: args{
 				userID:   3,
-				drawings: []*api.Drawing{randomDrawing(), randomDrawing(), randomDrawing()},
+				drawings: []*common.Drawing{randomDrawing(), randomDrawing(), randomDrawing()},
 			},
 		},
 		{
@@ -436,7 +437,7 @@ func TestUserStorage_CreateDrawings(t *testing.T) {
 			fields: fields{Storage: storage, user: &users[3].UserBasic},
 			args: args{
 				userID:   3,
-				drawings: []*api.Drawing{randomDrawing(), randomDrawing(), randomDrawing()},
+				drawings: []*common.Drawing{randomDrawing(), randomDrawing(), randomDrawing()},
 			},
 		},
 		{
@@ -447,7 +448,7 @@ func TestUserStorage_CreateDrawings(t *testing.T) {
 			},
 			args: args{
 				userID:   3,
-				drawings: []*api.Drawing{randomDrawing(), randomDrawing(), randomDrawing()},
+				drawings: []*common.Drawing{randomDrawing(), randomDrawing(), randomDrawing()},
 			},
 			wantErr: true,
 		},
@@ -465,9 +466,9 @@ func TestUserStorage_CreateDrawings(t *testing.T) {
 	}
 }
 
-func randomDrawing() *api.Drawing {
-	d := &api.Drawing{
-		DrawingBasic: api.DrawingBasic{Name: generator.GeneratePassword(15, 0, 0, 0)},
+func randomDrawing() *common.Drawing {
+	d := &common.Drawing{
+		DrawingBasic: common.DrawingBasic{Name: generator.GeneratePassword(15, 0, 0, 0)},
 		GGDrawing:    *raster.NewGGDrawing(),
 	}
 	for i, n := 0, rand.Intn(5); i < n; i++ {
@@ -490,7 +491,7 @@ func TestUserStorage_GetDrawing(t *testing.T) {
 
 	type fields struct {
 		Storage *Storage
-		user    *api.UserBasic
+		user    *common.UserBasic
 	}
 	type args struct {
 		id uint
@@ -544,7 +545,7 @@ func TestUserStorage_GetDrawingOfUser(t *testing.T) {
 
 	type fields struct {
 		Storage *Storage
-		user    *api.UserBasic
+		user    *common.UserBasic
 	}
 	type args struct {
 		userID    uint
@@ -610,10 +611,10 @@ func TestUserStorage_UpdateDrawing(t *testing.T) {
 
 	type fields struct {
 		Storage *Storage
-		user    *api.UserBasic
+		user    *common.UserBasic
 	}
 	type args struct {
-		drawing *api.Drawing
+		drawing *common.Drawing
 	}
 	tests := []struct {
 		name    string
@@ -662,11 +663,11 @@ func TestUserStorage_UpdateDrawingOfUser(t *testing.T) {
 
 	type fields struct {
 		Storage *Storage
-		user    *api.UserBasic
+		user    *common.UserBasic
 	}
 	type args struct {
 		userID  uint
-		drawing *api.Drawing
+		drawing *common.Drawing
 	}
 	tests := []struct {
 		name    string
@@ -715,7 +716,7 @@ func TestUserStorage_RemoveDrawing(t *testing.T) {
 
 	type fields struct {
 		Storage *Storage
-		user    *api.UserBasic
+		user    *common.UserBasic
 	}
 	type args struct {
 		id uint
@@ -767,7 +768,7 @@ func TestUserStorage_RemoveDrawingOfUser(t *testing.T) {
 
 	type fields struct {
 		Storage *Storage
-		user    *api.UserBasic
+		user    *common.UserBasic
 	}
 	type args struct {
 		userID    uint
@@ -820,7 +821,7 @@ func TestUserStorage_GetDrawingsList(t *testing.T) {
 
 	type fields struct {
 		Storage *Storage
-		user    *api.UserBasic
+		user    *common.UserBasic
 	}
 	type args struct {
 		userID    uint
@@ -871,7 +872,7 @@ func TestUserStorage_DrawingsAmount(t *testing.T) {
 
 	type fields struct {
 		Storage *Storage
-		user    *api.UserBasic
+		user    *common.UserBasic
 	}
 	type args struct {
 		userID uint
@@ -920,7 +921,7 @@ func TestUserStorage_GetDrawingPermission(t *testing.T) {
 
 	type fields struct {
 		Storage *Storage
-		user    *api.UserBasic
+		user    *common.UserBasic
 	}
 	type args struct {
 		userID    uint
@@ -975,7 +976,7 @@ func TestUserStorage_GetDrawingsPermissionsOfDrawing(t *testing.T) {
 
 	type fields struct {
 		Storage *Storage
-		user    *api.UserBasic
+		user    *common.UserBasic
 	}
 	type args struct {
 		drawingID uint
@@ -1029,7 +1030,7 @@ func TestUserStorage_GetDrawingsPermissionsOfUser(t *testing.T) {
 
 	type fields struct {
 		Storage *Storage
-		user    *api.UserBasic
+		user    *common.UserBasic
 	}
 	type args struct {
 		userID uint
@@ -1078,10 +1079,10 @@ func TestUserStorage_CreateDrawingPermission(t *testing.T) {
 
 	type fields struct {
 		Storage *Storage
-		user    *api.UserBasic
+		user    *common.UserBasic
 	}
 	type args struct {
-		permission *api.DrawingPermission
+		permission *common.DrawingPermission
 	}
 	tests := []struct {
 		name    string
@@ -1092,7 +1093,7 @@ func TestUserStorage_CreateDrawingPermission(t *testing.T) {
 		{
 			name:   "allowed for admin",
 			fields: fields{Storage: storage, user: &users[1].UserBasic},
-			args: args{permission: &api.DrawingPermission{
+			args: args{permission: &common.DrawingPermission{
 				User:    &users[2].UserBasic,
 				Drawing: &drawings[4].DrawingBasic,
 				Get:     true,
@@ -1101,7 +1102,7 @@ func TestUserStorage_CreateDrawingPermission(t *testing.T) {
 		{
 			name:   "allowed for owner",
 			fields: fields{Storage: storage, user: &users[3].UserBasic},
-			args: args{permission: &api.DrawingPermission{
+			args: args{permission: &common.DrawingPermission{
 				User:    &users[1].UserBasic,
 				Drawing: &drawings[3].DrawingBasic,
 				Get:     true,
@@ -1110,7 +1111,7 @@ func TestUserStorage_CreateDrawingPermission(t *testing.T) {
 		{
 			name:   "allowed by Share permission",
 			fields: fields{Storage: storage, user: &users[3].UserBasic},
-			args: args{permission: &api.DrawingPermission{
+			args: args{permission: &common.DrawingPermission{
 				User:    &users[1].UserBasic,
 				Drawing: &drawings[1].DrawingBasic,
 				Get:     true,
@@ -1119,7 +1120,7 @@ func TestUserStorage_CreateDrawingPermission(t *testing.T) {
 		{
 			name:   "not allowed",
 			fields: fields{Storage: storage, user: &users[2].UserBasic},
-			args: args{permission: &api.DrawingPermission{
+			args: args{permission: &common.DrawingPermission{
 				User:    &users[1].UserBasic,
 				Drawing: &drawings[1].DrawingBasic,
 				Get:     true,
@@ -1146,10 +1147,10 @@ func TestUserStorage_UpdateDrawingPermission(t *testing.T) {
 
 	type fields struct {
 		Storage *Storage
-		user    *api.UserBasic
+		user    *common.UserBasic
 	}
 	type args struct {
-		permission *api.DrawingPermission
+		permission *common.DrawingPermission
 	}
 	tests := []struct {
 		name    string
@@ -1160,7 +1161,7 @@ func TestUserStorage_UpdateDrawingPermission(t *testing.T) {
 		{
 			name:   "allowed for admin",
 			fields: fields{Storage: storage, user: &users[1].UserBasic},
-			args: args{permission: &api.DrawingPermission{
+			args: args{permission: &common.DrawingPermission{
 				User:    &users[2].UserBasic,
 				Drawing: &drawings[3].DrawingBasic,
 				Get:     true,
@@ -1169,7 +1170,7 @@ func TestUserStorage_UpdateDrawingPermission(t *testing.T) {
 		{
 			name:   "allowed for owner",
 			fields: fields{Storage: storage, user: &users[3].UserBasic},
-			args: args{permission: &api.DrawingPermission{
+			args: args{permission: &common.DrawingPermission{
 				User:    &users[2].UserBasic,
 				Drawing: &drawings[3].DrawingBasic,
 				Get:     true,
@@ -1179,7 +1180,7 @@ func TestUserStorage_UpdateDrawingPermission(t *testing.T) {
 		{
 			name:   "allowed by Share permission",
 			fields: fields{Storage: storage, user: &users[2].UserBasic},
-			args: args{permission: &api.DrawingPermission{
+			args: args{permission: &common.DrawingPermission{
 				User:    &users[3].UserBasic,
 				Drawing: &drawings[1].DrawingBasic,
 				Get:     true,
@@ -1189,7 +1190,7 @@ func TestUserStorage_UpdateDrawingPermission(t *testing.T) {
 		{
 			name:   "not allowed",
 			fields: fields{Storage: storage, user: &users[2].UserBasic},
-			args: args{permission: &api.DrawingPermission{
+			args: args{permission: &common.DrawingPermission{
 				User:    &users[3].UserBasic,
 				Drawing: &drawings[1].DrawingBasic,
 				Get:     true,
@@ -1216,7 +1217,7 @@ func TestUserStorage_RemoveDrawingPermission(t *testing.T) {
 
 	type fields struct {
 		Storage *Storage
-		user    *api.UserBasic
+		user    *common.UserBasic
 	}
 	type args struct {
 		userID    uint

@@ -1,10 +1,9 @@
 goCeiling
 ---------
 
-This is a system for manage drawings of ceilings. 
+This is a system for managing drawings of ceilings. 
 
-At this moment supports only REST API and SQLite storage. 
-For more read [README](/api/README.md) in API directory.
+At this moment supports only [REST API](/server/api/README.md) and SQLite storage.
 
 If your computer has installed Golang, you can install application with the next commands:
 ```shell script
@@ -12,7 +11,7 @@ go get github.com/maxsid/goCeilings
 go install github.com/maxsid/goCeilings
 ```
 
-Usage of goCeilings command:
+Usage of goCeilings:
 ```
   -addr string
         address of API for listening (default "127.0.0.1:8081")

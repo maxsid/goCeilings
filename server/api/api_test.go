@@ -4,14 +4,16 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/gorilla/mux"
-	"github.com/maxsid/goCeilings/drawing/raster"
-	"github.com/maxsid/goCeilings/figure"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
 	"testing"
 	"time"
+
+	"github.com/gorilla/mux"
+	"github.com/maxsid/goCeilings/drawing/raster"
+	"github.com/maxsid/goCeilings/figure"
+	"github.com/maxsid/goCeilings/server/common"
 )
 
 // Storage testing realization
@@ -25,14 +27,14 @@ type ErrorSimulation struct {
 
 type MockUserStorageT struct {
 	*MockStorageT
-	user *UserBasic
+	user *common.UserBasic
 }
 
-func (m *MockUserStorageT) GetCurrentUser() *UserBasic {
+func (m *MockUserStorageT) GetCurrentUser() *common.UserBasic {
 	return m.user
 }
 
-func (m *MockUserStorageT) GetStorage() Storage {
+func (m *MockUserStorageT) GetStorage() common.Storage {
 	return m.MockStorageT
 }
 
@@ -41,12 +43,12 @@ type MockStorageT struct {
 	UntilNotAllowedOperation uint
 	autoincrementUserID      uint
 	autoincrementDrawingID   uint
-	users                    []*UserConfident
-	drawings                 []*Drawing
-	permissions              []*DrawingPermission
+	users                    []*common.UserConfident
+	drawings                 []*common.Drawing
+	permissions              []*common.DrawingPermission
 }
 
-func (td *MockStorageT) GetDrawingPermission(userID, drawingID uint) (*DrawingPermission, error) {
+func (td *MockStorageT) GetDrawingPermission(userID, drawingID uint) (*common.DrawingPermission, error) {
 	if err := td.simulateError(); err != nil {
 		return nil, err
 	}
@@ -58,11 +60,11 @@ func (td *MockStorageT) GetDrawingPermission(userID, drawingID uint) (*DrawingPe
 	return nil, ErrNotFound
 }
 
-func (td *MockStorageT) GetDrawingsPermissionsOfDrawing(drawingID uint) ([]*DrawingPermission, error) {
+func (td *MockStorageT) GetDrawingsPermissionsOfDrawing(drawingID uint) ([]*common.DrawingPermission, error) {
 	if err := td.simulateError(); err != nil {
 		return nil, err
 	}
-	out := make([]*DrawingPermission, 0)
+	out := make([]*common.DrawingPermission, 0)
 	for _, p := range td.permissions {
 		if p.Drawing.ID == drawingID {
 			out = append(out, p)
@@ -71,11 +73,11 @@ func (td *MockStorageT) GetDrawingsPermissionsOfDrawing(drawingID uint) ([]*Draw
 	return out, nil
 }
 
-func (td *MockStorageT) GetDrawingsPermissionsOfUser(userID uint) ([]*DrawingPermission, error) {
+func (td *MockStorageT) GetDrawingsPermissionsOfUser(userID uint) ([]*common.DrawingPermission, error) {
 	if err := td.simulateError(); err != nil {
 		return nil, err
 	}
-	out := make([]*DrawingPermission, 0)
+	out := make([]*common.DrawingPermission, 0)
 	for _, p := range td.permissions {
 		if p.User.ID == userID {
 			out = append(out, p)
@@ -84,7 +86,7 @@ func (td *MockStorageT) GetDrawingsPermissionsOfUser(userID uint) ([]*DrawingPer
 	return out, nil
 }
 
-func (td *MockStorageT) CreateDrawingPermission(permission *DrawingPermission) error {
+func (td *MockStorageT) CreateDrawingPermission(permission *common.DrawingPermission) error {
 	if err := td.simulateError(); err != nil {
 		return err
 	}
@@ -95,7 +97,7 @@ func (td *MockStorageT) CreateDrawingPermission(permission *DrawingPermission) e
 	return nil
 }
 
-func (td *MockStorageT) UpdateDrawingPermission(permission *DrawingPermission) error {
+func (td *MockStorageT) UpdateDrawingPermission(permission *common.DrawingPermission) error {
 	if err := td.simulateError(); err != nil {
 		return err
 	}
@@ -123,10 +125,10 @@ func (td *MockStorageT) RemoveDrawingPermission(userID, drawingID uint) error {
 
 func newMockStorage() *MockStorageT {
 	storage := MockStorageT{autoincrementUserID: 4, autoincrementDrawingID: 10}
-	storage.users = []*UserConfident{
-		{UserBasic{1, "maxim", RoleAdmin}, "12345"},
-		{UserBasic{2, "oleg", RoleUser}, "123456"},
-		{UserBasic{3, "elena", RoleUser}, "1234567"},
+	storage.users = []*common.UserConfident{
+		{UserBasic: common.UserBasic{ID: 1, Login: "maxim", Role: common.RoleAdmin}, Password: "12345"},
+		{UserBasic: common.UserBasic{ID: 2, Login: "oleg", Role: common.RoleUser}, Password: "123456"},
+		{UserBasic: common.UserBasic{ID: 3, Login: "elena", Role: common.RoleUser}, Password: "1234567"},
 	}
 
 	for _, u := range storage.users {
@@ -143,18 +145,18 @@ func newMockStorage() *MockStorageT {
 	drawing2 := raster.NewEmptyGGDrawing()
 	_ = drawing2.Polygon.AddPoints([]*figure.Point{{X: 0, Y: 0}, {X: 0, Y: 1.55}, {X: 0.725, Y: 1.55}, {X: 0.725, Y: 1.675},
 		{X: 0.125, Y: 1.6751}, {X: 0.1253, Y: 5.9751}, {X: 3.4252, Y: 5.9999}, {X: 3.45, Y: 0}}...)
-	storage.drawings = []*Drawing{
-		{DrawingBasic{ID: 1, Name: "Drawing 1"}, *drawing1},
-		{DrawingBasic{ID: 2, Name: "Drawing 2"}, *drawing2},
-		{DrawingBasic{ID: 3, Name: "Drawing 3"}, *drawing1},
-		{DrawingBasic{ID: 4, Name: "Drawing 4"}, *raster.NewGGDrawing()},
-		{DrawingBasic{ID: 5, Name: "Drawing 5"}, *drawing1},
-		{DrawingBasic{ID: 6, Name: "Drawing 6"}, *raster.NewGGDrawing()},
-		{DrawingBasic{ID: 7, Name: "Drawing 7"}, *drawing2},
-		{DrawingBasic{ID: 8, Name: "Drawing 8"}, *raster.NewGGDrawing()},
-		{DrawingBasic{ID: 9, Name: "Drawing 9"}, *drawing2},
+	storage.drawings = []*common.Drawing{
+		{DrawingBasic: common.DrawingBasic{ID: 1, Name: "Drawing 1"}, GGDrawing: *drawing1},
+		{DrawingBasic: common.DrawingBasic{ID: 2, Name: "Drawing 2"}, GGDrawing: *drawing2},
+		{DrawingBasic: common.DrawingBasic{ID: 3, Name: "Drawing 3"}, GGDrawing: *drawing1},
+		{DrawingBasic: common.DrawingBasic{ID: 4, Name: "Drawing 4"}, GGDrawing: *raster.NewGGDrawing()},
+		{DrawingBasic: common.DrawingBasic{ID: 5, Name: "Drawing 5"}, GGDrawing: *drawing1},
+		{DrawingBasic: common.DrawingBasic{ID: 6, Name: "Drawing 6"}, GGDrawing: *raster.NewGGDrawing()},
+		{DrawingBasic: common.DrawingBasic{ID: 7, Name: "Drawing 7"}, GGDrawing: *drawing2},
+		{DrawingBasic: common.DrawingBasic{ID: 8, Name: "Drawing 8"}, GGDrawing: *raster.NewGGDrawing()},
+		{DrawingBasic: common.DrawingBasic{ID: 9, Name: "Drawing 9"}, GGDrawing: *drawing2},
 	}
-	storage.permissions = []*DrawingPermission{
+	storage.permissions = []*common.DrawingPermission{
 		{User: &storage.users[0].UserBasic, Drawing: &storage.drawings[1].DrawingBasic, Owner: true},
 		{User: &storage.users[0].UserBasic, Drawing: &storage.drawings[5].DrawingBasic, Owner: true},
 		{User: &storage.users[0].UserBasic, Drawing: &storage.drawings[7].DrawingBasic, Owner: true},
@@ -193,7 +195,7 @@ func (td *MockStorageT) simulateError() (err error) {
 	return
 }
 
-func (td *MockStorageT) findUserByLogin(login string) *UserConfident {
+func (td *MockStorageT) findUserByLogin(login string) *common.UserConfident {
 	for _, u := range td.users {
 		if u.Login == login {
 			return u
@@ -202,7 +204,7 @@ func (td *MockStorageT) findUserByLogin(login string) *UserConfident {
 	return nil
 }
 
-func (td *MockStorageT) CreateUsers(users ...*UserConfident) error {
+func (td *MockStorageT) CreateUsers(users ...*common.UserConfident) error {
 	if err := td.simulateError(); err != nil {
 		return err
 	}
@@ -217,7 +219,7 @@ func (td *MockStorageT) CreateUsers(users ...*UserConfident) error {
 	return nil
 }
 
-func (td *MockStorageT) GetUser(login, pass string) (*UserConfident, error) {
+func (td *MockStorageT) GetUser(login, pass string) (*common.UserConfident, error) {
 	if err := td.simulateError(); err != nil {
 		return nil, err
 	}
@@ -229,7 +231,7 @@ func (td *MockStorageT) GetUser(login, pass string) (*UserConfident, error) {
 	return nil, ErrUserNotFound
 }
 
-func (td *MockStorageT) GetUserByID(id uint) (*UserConfident, error) {
+func (td *MockStorageT) GetUserByID(id uint) (*common.UserConfident, error) {
 	if err := td.simulateError(); err != nil {
 		return nil, err
 	}
@@ -241,15 +243,15 @@ func (td *MockStorageT) GetUserByID(id uint) (*UserConfident, error) {
 	return nil, ErrUserNotFound
 }
 
-func (td *MockStorageT) GetUserStorage(user *UserBasic) (UserStorage, error) {
+func (td *MockStorageT) GetUserStorage(user *common.UserBasic) (common.UserStorage, error) {
 	return &MockUserStorageT{MockStorageT: td, user: user}, nil
 }
 
-func (td *MockStorageT) GetUsersList(page, pageLimit uint) ([]*UserBasic, error) {
+func (td *MockStorageT) GetUsersList(page, pageLimit uint) ([]*common.UserBasic, error) {
 	if err := td.simulateError(); err != nil {
 		return nil, err
 	}
-	out := make([]*UserBasic, 0)
+	out := make([]*common.UserBasic, 0)
 	amount, err := td.UsersAmount()
 	if err != nil {
 		return nil, err
@@ -285,7 +287,7 @@ func (td *MockStorageT) RemoveUser(id uint) error {
 	return nil
 }
 
-func (td *MockStorageT) UpdateUser(user *UserConfident) error {
+func (td *MockStorageT) UpdateUser(user *common.UserConfident) error {
 	if err := td.simulateError(); err != nil {
 		return err
 	}
@@ -300,7 +302,7 @@ func (td *MockStorageT) UpdateUser(user *UserConfident) error {
 	return ErrUserNotFound
 }
 
-func (td *MockStorageT) GetDrawing(id uint) (*Drawing, error) {
+func (td *MockStorageT) GetDrawing(id uint) (*common.Drawing, error) {
 	if err := td.simulateError(); err != nil {
 		return nil, err
 	}
@@ -312,7 +314,7 @@ func (td *MockStorageT) GetDrawing(id uint) (*Drawing, error) {
 	return nil, ErrDrawingNotFound
 }
 
-func (td *MockStorageT) GetDrawingOfUser(userID, drawingID uint) (*Drawing, error) {
+func (td *MockStorageT) GetDrawingOfUser(userID, drawingID uint) (*common.Drawing, error) {
 	if err := td.simulateError(); err != nil {
 		return nil, err
 	}
@@ -322,7 +324,7 @@ func (td *MockStorageT) GetDrawingOfUser(userID, drawingID uint) (*Drawing, erro
 	return td.GetDrawing(drawingID)
 }
 
-func (td *MockStorageT) GetDrawingsList(userID, page, pageLimit uint) ([]*DrawingBasic, error) {
+func (td *MockStorageT) GetDrawingsList(userID, page, pageLimit uint) ([]*common.DrawingBasic, error) {
 	if err := td.simulateError(); err != nil {
 		return nil, err
 	}
@@ -335,7 +337,7 @@ func (td *MockStorageT) GetDrawingsList(userID, page, pageLimit uint) ([]*Drawin
 	if l := uint(len(dOfU)); end > l {
 		end = l
 	}
-	out := make([]*DrawingBasic, 0)
+	out := make([]*common.DrawingBasic, 0)
 	for _, dp := range dOfU[offset:end] {
 		out = append(out, dp.Drawing)
 	}
@@ -353,7 +355,7 @@ func (td *MockStorageT) DrawingsAmount(userID uint) (uint, error) {
 	return uint(len(ps)), nil
 }
 
-func (td *MockStorageT) CreateDrawings(userID uint, drawings ...*Drawing) error {
+func (td *MockStorageT) CreateDrawings(userID uint, drawings ...*common.Drawing) error {
 	if err := td.simulateError(); err != nil {
 		return err
 	}
@@ -363,7 +365,7 @@ func (td *MockStorageT) CreateDrawings(userID uint, drawings ...*Drawing) error 
 	}
 	for _, d := range drawings {
 		d.ID = td.autoincrementDrawingID
-		p := &DrawingPermission{User: &user.UserBasic, Drawing: &d.DrawingBasic, Get: true, Change: true, Delete: true,
+		p := &common.DrawingPermission{User: &user.UserBasic, Drawing: &d.DrawingBasic, Get: true, Change: true, Delete: true,
 			Share: true, Owner: true}
 		if err := td.CreateDrawingPermission(p); err != nil {
 			return err
@@ -374,7 +376,7 @@ func (td *MockStorageT) CreateDrawings(userID uint, drawings ...*Drawing) error 
 	return nil
 }
 
-func (td *MockStorageT) UpdateDrawing(drawing *Drawing) error {
+func (td *MockStorageT) UpdateDrawing(drawing *common.Drawing) error {
 	if err := td.simulateError(); err != nil {
 		return err
 	}
@@ -387,7 +389,7 @@ func (td *MockStorageT) UpdateDrawing(drawing *Drawing) error {
 	return ErrDrawingNotFound
 }
 
-func (td *MockStorageT) UpdateDrawingOfUser(userID uint, drawing *Drawing) error {
+func (td *MockStorageT) UpdateDrawingOfUser(userID uint, drawing *common.Drawing) error {
 	if err := td.simulateError(); err != nil {
 		return err
 	}
@@ -492,14 +494,14 @@ func checkTestCase(t *testing.T, tt TestCase, data *MockStorageT) {
 			}
 		}
 	}(recorder, t)
-	if router != nil {
+	switch {
+	case router != nil:
 		router.ServeHTTP(recorder, req)
-	} else if tt.testingHandler != nil {
+	case tt.testingHandler != nil:
 		tt.testingHandler.ServeHTTP(recorder, req)
-	} else {
+	default:
 		panic("Wrong TestCase: Router == nil and testingHandler == nil")
 	}
-
 }
 
 // ===========
@@ -914,7 +916,7 @@ func Test_getUserUpdatingHandler(t *testing.T) {
 		TestCase
 		userID          uint
 		login, password string
-		role            UserRole
+		role            common.UserRole
 	}
 	tests := []UpdatingTestCase{
 		{TestCase: TestCase{

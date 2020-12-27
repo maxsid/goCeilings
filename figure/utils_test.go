@@ -2,10 +2,11 @@ package figure
 
 import (
 	"fmt"
-	"github.com/go-test/deep"
-	. "github.com/maxsid/goCeilings/value"
 	"math"
 	"testing"
+
+	"github.com/go-test/deep"
+	. "github.com/maxsid/goCeilings/value"
 )
 
 func TestPointDirection(t *testing.T) {
@@ -126,8 +127,5 @@ func comparePoints(pw, p *Point, accuracy float64) bool {
 // Used for tests only.
 func compareFloats(a, b, accuracy float64) bool {
 	d := math.Abs(a - b)
-	if d > accuracy {
-		return false
-	}
-	return true
+	return d <= accuracy
 }

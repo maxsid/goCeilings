@@ -2,6 +2,7 @@ package api
 
 import (
 	"github.com/maxsid/goCeilings/figure"
+	"github.com/maxsid/goCeilings/server/common"
 	"github.com/maxsid/goCeilings/value"
 )
 
@@ -14,12 +15,12 @@ type listStatData struct {
 }
 
 type usersListResponseData struct {
-	Users []*UserBasic `json:"users"`
+	Users []*common.UserBasic `json:"users"`
 	listStatData
 }
 
 type drawingsListResponseData struct {
-	Drawings []*DrawingBasic `json:"drawings"`
+	Drawings []*common.DrawingBasic `json:"drawings"`
 	listStatData
 }
 
@@ -32,14 +33,14 @@ type drawingCalculatedData struct {
 }
 
 type drawingGetResponseData struct {
-	DrawingBasic
+	common.DrawingBasic
 	drawingCalculatedData
 	Points   []*figure.Point            `json:"points"`
 	Measures *value.FigureMeasuresNames `json:"measures"`
 }
 
 type drawingPostPutRequestData struct {
-	DrawingBasic
+	common.DrawingBasic
 	Points   []*pointCalculating       `json:"points"`
 	Measures value.FigureMeasuresNames `json:"measures"`
 }
@@ -64,7 +65,7 @@ type pointWithMeasure struct {
 }
 
 type drawingPointsGettingResponseData struct {
-	DrawingBasic
+	common.DrawingBasic
 	Points  []*figure.Point `json:"points"`
 	Measure string          `json:"measure"`
 }

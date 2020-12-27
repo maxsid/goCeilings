@@ -1,18 +1,19 @@
-package storage
+package gorm
 
 import (
-	"github.com/maxsid/goCeilings/api"
+	"time"
+
 	"github.com/maxsid/goCeilings/drawing"
 	"github.com/maxsid/goCeilings/drawing/raster"
+	"github.com/maxsid/goCeilings/server/common"
 	"gorm.io/gorm"
-	"time"
 )
 
 type userModel struct {
 	gorm.Model
 	Login    string `gorm:"unique"`
 	Password string
-	Role     api.UserRole
+	Role     common.UserRole
 }
 
 type drawingModel struct {
@@ -34,8 +35,8 @@ type drawingPermissionModel struct {
 	DeletedAt                         gorm.DeletedAt `gorm:"index"`
 }
 
-func (udp *drawingPermissionModel) ToApi() *api.DrawingPermission {
-	pol := &api.DrawingPermission{
+func (udp *drawingPermissionModel) ToAPI() *common.DrawingPermission {
+	pol := &common.DrawingPermission{
 		Get:    udp.Get,
 		Change: udp.Change,
 		Delete: udp.Delete,
@@ -43,10 +44,10 @@ func (udp *drawingPermissionModel) ToApi() *api.DrawingPermission {
 		Owner:  udp.Owner,
 	}
 	if udp.User != nil {
-		pol.User = &udp.User.ToApi().UserBasic
+		pol.User = &udp.User.ToAPI().UserBasic
 	}
 	if udp.Drawing != nil {
-		pol.Drawing = &udp.Drawing.ToApi().DrawingBasic
+		pol.Drawing = &udp.Drawing.ToAPI().DrawingBasic
 	}
 	return pol
 }
@@ -55,14 +56,14 @@ func (udp *drawingPermissionModel) IsFullFalse() bool {
 	return !(udp.Get || udp.Change || udp.Delete || udp.Share || udp.Owner)
 }
 
-func (udp *drawingPermissionModel) UpdateFromApi(pol *api.DrawingPermission) {
+func (udp *drawingPermissionModel) FromAPI(pol *common.DrawingPermission) {
 	udp.UserID, udp.DrawingID = pol.User.ID, pol.Drawing.ID
 	udp.Get, udp.Change, udp.Delete, udp.Share, udp.Owner = pol.Get, pol.Change, pol.Delete, pol.Share, pol.Owner
 }
 
-func (d *drawingModel) ToApi() *api.Drawing {
-	ad := &api.Drawing{
-		DrawingBasic: api.DrawingBasic{
+func (d *drawingModel) ToAPI() *common.Drawing {
+	ad := &common.Drawing{
+		DrawingBasic: common.DrawingBasic{
 			ID:   d.ID,
 			Name: d.Name,
 		},
@@ -75,7 +76,7 @@ func (d *drawingModel) ToApi() *api.Drawing {
 	return ad
 }
 
-func (d *drawingModel) UpdateFromApi(ad *api.Drawing) {
+func (d *drawingModel) FromAPI(ad *common.Drawing) {
 	d.ID = ad.ID
 	d.Name = ad.Name
 	d.Drawing = &ad.GGDrawing
@@ -86,9 +87,9 @@ func (d *drawingModel) UpdateFromApi(ad *api.Drawing) {
 	d.Width = d.Drawing.Width()
 }
 
-func (u *userModel) ToApi() *api.UserConfident {
-	return &api.UserConfident{
-		UserBasic: api.UserBasic{
+func (u *userModel) ToAPI() *common.UserConfident {
+	return &common.UserConfident{
+		UserBasic: common.UserBasic{
 			ID:    u.ID,
 			Login: u.Login,
 			Role:  u.Role,
@@ -97,7 +98,7 @@ func (u *userModel) ToApi() *api.UserConfident {
 	}
 }
 
-func (u *userModel) UpdateFromApi(au *api.UserConfident) {
+func (u *userModel) FromAPI(au *common.UserConfident) {
 	u.Role = au.Role
 	u.Login = au.Login
 	u.Password = au.Password

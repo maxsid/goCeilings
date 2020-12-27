@@ -3,8 +3,9 @@ package figure
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/maxsid/goCeilings/value"
 	"math"
+
+	"github.com/maxsid/goCeilings/value"
 )
 
 // Point is a minimal element of any figure. Contains Coordinates on the drawing and Calculator, which calculates

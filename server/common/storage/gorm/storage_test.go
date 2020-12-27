@@ -1,23 +1,26 @@
-package storage
+package gorm
 
 import (
 	"errors"
 	"fmt"
-	"github.com/go-test/deep"
-	"github.com/maxsid/goCeilings/api"
-	"github.com/maxsid/goCeilings/drawing"
-	"github.com/maxsid/goCeilings/drawing/raster"
-	"github.com/maxsid/goCeilings/figure"
-	"github.com/maxsid/goCeilings/value"
+	"gorm.io/driver/sqlite"
 	"os"
 	"path"
 	"testing"
 	"time"
+
+	"github.com/go-test/deep"
+	"github.com/maxsid/goCeilings/drawing"
+	"github.com/maxsid/goCeilings/drawing/raster"
+	"github.com/maxsid/goCeilings/figure"
+	"github.com/maxsid/goCeilings/server/api"
+	"github.com/maxsid/goCeilings/server/common"
+	"github.com/maxsid/goCeilings/value"
 )
 
-var drawings = map[int]*api.Drawing{
+var drawings = map[int]*common.Drawing{
 	1: {
-		DrawingBasic: api.DrawingBasic{ID: 1, Name: "First"},
+		DrawingBasic: common.DrawingBasic{ID: 1, Name: "First"},
 		GGDrawing: raster.GGDrawing{
 			Polygon: figure.Polygon{Points: []*figure.Point{{X: 0, Y: 0}, {X: 0, Y: 1.25}, {X: 0.27, Y: 1.25},
 				{X: 0.2701, Y: 1.71}, {X: 2.2201, Y: 1.6998}, {X: 2.25, Y: 0}}},
@@ -26,7 +29,7 @@ var drawings = map[int]*api.Drawing{
 		},
 	},
 	2: {
-		DrawingBasic: api.DrawingBasic{ID: 2, Name: "Second"},
+		DrawingBasic: common.DrawingBasic{ID: 2, Name: "Second"},
 		GGDrawing: raster.GGDrawing{
 			Polygon: figure.Polygon{Points: []*figure.Point{{X: 0, Y: 0}, {X: 0, Y: 1.55}, {X: 0.725, Y: 1.55},
 				{X: 0.725, Y: 1.675}, {X: 0.125, Y: 1.6751}, {X: 0.1253, Y: 5.9751}, {X: 3.4252, Y: 5.9999}, {X: 3.45, Y: 0}}},
@@ -35,7 +38,7 @@ var drawings = map[int]*api.Drawing{
 		},
 	},
 	3: {
-		DrawingBasic: api.DrawingBasic{ID: 3, Name: "Third"},
+		DrawingBasic: common.DrawingBasic{ID: 3, Name: "Third"},
 		GGDrawing: raster.GGDrawing{
 			Polygon: figure.Polygon{Points: []*figure.Point{
 				{X: 0, Y: 0},
@@ -48,7 +51,7 @@ var drawings = map[int]*api.Drawing{
 		},
 	},
 	4: {
-		DrawingBasic: api.DrawingBasic{ID: 4, Name: "Fourth (empty)"},
+		DrawingBasic: common.DrawingBasic{ID: 4, Name: "Fourth (empty)"},
 		GGDrawing: raster.GGDrawing{
 			Polygon:     figure.Polygon{Points: []*figure.Point{}},
 			Description: &drawing.Description{{"address", "K. Marx St."}},
@@ -57,13 +60,13 @@ var drawings = map[int]*api.Drawing{
 	},
 }
 
-var users = map[int]*api.UserConfident{
-	1: {UserBasic: api.UserBasic{ID: 1, Login: "maxim", Role: api.RoleAdmin}, Password: "password1"},
-	2: {UserBasic: api.UserBasic{ID: 2, Login: "oleg", Role: api.RoleUser}, Password: "password2"},
-	3: {UserBasic: api.UserBasic{ID: 3, Login: "elena", Role: api.RoleUser}, Password: "password3"},
+var users = map[int]*common.UserConfident{
+	1: {UserBasic: common.UserBasic{ID: 1, Login: "maxim", Role: common.RoleAdmin}, Password: "password1"},
+	2: {UserBasic: common.UserBasic{ID: 2, Login: "oleg", Role: common.RoleUser}, Password: "password2"},
+	3: {UserBasic: common.UserBasic{ID: 3, Login: "elena", Role: common.RoleUser}, Password: "password3"},
 }
 
-var permissions = []*api.DrawingPermission{
+var permissions = []*common.DrawingPermission{
 	{User: &users[1].UserBasic, Drawing: &drawings[2].DrawingBasic, Owner: true},
 	{User: &users[1].UserBasic, Drawing: &drawings[4].DrawingBasic, Get: true},
 
@@ -85,7 +88,7 @@ func createTempStorage() {
 	deleteTempStorage()
 	var err error
 	previousStorageFile = path.Join(os.TempDir(), fmt.Sprintf("goCeiling-sqlite-test-%d", time.Now().UnixNano()))
-	storage, err = NewSQLiteStorage(previousStorageFile)
+	storage, err = NewDatabase(sqlite.Open(previousStorageFile))
 	if err != nil {
 		panic(err)
 	}
@@ -115,7 +118,7 @@ func createStorageData(storage *Storage) error {
 	for i, u := range users {
 		i--
 		storageUsers[i] = &userModel{}
-		storageUsers[i].UpdateFromApi(u)
+		storageUsers[i].FromAPI(u)
 		storageUsers[i].Password = getHexHash(u.Password, HashSalt)
 		t := initTime.Add(time.Duration(i) * time.Second)
 		storageUsers[i].CreatedAt, storageUsers[i].UpdatedAt = t, t
@@ -128,7 +131,7 @@ func createStorageData(storage *Storage) error {
 	for i, d := range drawings {
 		i--
 		storageDrawings[i] = &drawingModel{}
-		storageDrawings[i].UpdateFromApi(d)
+		storageDrawings[i].FromAPI(d)
 		t := initTime.Add(time.Duration(i) * 5 * time.Second)
 		storageDrawings[i].CreatedAt, storageDrawings[i].UpdatedAt = t, t
 	}
@@ -139,7 +142,7 @@ func createStorageData(storage *Storage) error {
 	storagePs := make([]*drawingPermissionModel, len(permissions))
 	for i, p := range permissions {
 		storagePs[i] = &drawingPermissionModel{}
-		storagePs[i].UpdateFromApi(p)
+		storagePs[i].FromAPI(p)
 		var t time.Time
 		if p.Owner {
 			for _, d := range storageDrawings {
@@ -170,7 +173,7 @@ func TestStorage_GetUser(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    args
-		want    api.UserBasic
+		want    common.UserBasic
 		wantErr bool
 	}{
 		{
@@ -179,7 +182,7 @@ func TestStorage_GetUser(t *testing.T) {
 				login: "maxim",
 				pass:  "password1",
 			},
-			want: api.UserBasic{ID: 1, Login: "maxim", Role: api.RoleAdmin},
+			want: common.UserBasic{ID: 1, Login: "maxim", Role: common.RoleAdmin},
 		},
 		{
 			name: "OK 2",
@@ -187,7 +190,7 @@ func TestStorage_GetUser(t *testing.T) {
 				login: "oleg",
 				pass:  "password2",
 			},
-			want: api.UserBasic{ID: 2, Login: "oleg", Role: api.RoleUser},
+			want: common.UserBasic{ID: 2, Login: "oleg", Role: common.RoleUser},
 		},
 		{
 			name: "Not found 1",
@@ -233,25 +236,25 @@ func TestStorage_GetUserByID(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    args
-		want    api.UserBasic
+		want    common.UserBasic
 		wantErr bool
 	}{
 		{
 			name: "OK 1",
 			args: args{1},
-			want: api.UserBasic{
+			want: common.UserBasic{
 				ID:    1,
 				Login: "maxim",
-				Role:  api.RoleAdmin,
+				Role:  common.RoleAdmin,
 			},
 		},
 		{
 			name: "OK 3",
 			args: args{3},
-			want: api.UserBasic{
+			want: common.UserBasic{
 				ID:    3,
 				Login: "elena",
-				Role:  api.RoleUser,
+				Role:  common.RoleUser,
 			},
 		},
 		{
@@ -287,22 +290,22 @@ func TestStorage_CreateUser(t *testing.T) {
 	defer deleteTempStorage()
 
 	type args struct {
-		user *api.UserConfident
+		user *common.UserConfident
 	}
 	tests := []struct {
 		name    string
 		args    args
-		want    *api.UserConfident
+		want    *common.UserConfident
 		wantErr bool
 	}{
 		{
 			name: "OK",
-			args: args{&api.UserConfident{UserBasic: api.UserBasic{Login: "dmitry", Role: api.RoleUser}, Password: "pass4"}},
-			want: &api.UserConfident{UserBasic: api.UserBasic{ID: 4, Login: "dmitry", Role: api.RoleUser}, Password: getHexHash("pass4", HashSalt)},
+			args: args{&common.UserConfident{UserBasic: common.UserBasic{Login: "dmitry", Role: common.RoleUser}, Password: "pass4"}},
+			want: &common.UserConfident{UserBasic: common.UserBasic{ID: 4, Login: "dmitry", Role: common.RoleUser}, Password: getHexHash("pass4", HashSalt)},
 		},
 		{
 			name:    "UserConfident with this login already exist",
-			args:    args{&api.UserConfident{UserBasic: api.UserBasic{Login: "maxim", Role: api.RoleUser}, Password: "pass4"}},
+			args:    args{&common.UserConfident{UserBasic: common.UserBasic{Login: "maxim", Role: common.RoleUser}, Password: "pass4"}},
 			wantErr: true,
 		},
 	}
@@ -331,7 +334,7 @@ func TestStorage_UpdateUser(t *testing.T) {
 	defer deleteTempStorage()
 
 	type args struct {
-		user *api.UserConfident
+		user *common.UserConfident
 	}
 	tests := []struct {
 		name    string
@@ -341,11 +344,11 @@ func TestStorage_UpdateUser(t *testing.T) {
 		{
 			name: "OK",
 			args: args{
-				&api.UserConfident{UserBasic: api.UserBasic{ID: 1, Login: "maxim2", Role: api.RoleUser}, Password: "password13"}},
+				&common.UserConfident{UserBasic: common.UserBasic{ID: 1, Login: "maxim2", Role: common.RoleUser}, Password: "password13"}},
 		},
 		{
 			name:    "Not found",
-			args:    args{&api.UserConfident{UserBasic: api.UserBasic{ID: 123, Login: "maxim2"}, Password: "password1"}},
+			args:    args{&common.UserConfident{UserBasic: common.UserBasic{ID: 123, Login: "maxim2"}, Password: "password1"}},
 			wantErr: true,
 		},
 	}
@@ -415,29 +418,29 @@ func TestStorage_GetUsersList(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    args
-		want    []*api.UserBasic
+		want    []*common.UserBasic
 		wantErr bool
 	}{
 		{
 			name: "OK page 1 pageLimit 10",
 			args: args{page: 1, pageLimit: 10},
-			want: []*api.UserBasic{
-				{ID: 1, Login: "maxim", Role: api.RoleAdmin},
-				{ID: 2, Login: "oleg", Role: api.RoleUser},
-				{ID: 3, Login: "elena", Role: api.RoleUser},
+			want: []*common.UserBasic{
+				{ID: 1, Login: "maxim", Role: common.RoleAdmin},
+				{ID: 2, Login: "oleg", Role: common.RoleUser},
+				{ID: 3, Login: "elena", Role: common.RoleUser},
 			},
 		},
 		{
 			name: "OK page 2 pageLimit 1",
 			args: args{page: 2, pageLimit: 1},
-			want: []*api.UserBasic{
-				{ID: 2, Login: "oleg", Role: api.RoleUser},
+			want: []*common.UserBasic{
+				{ID: 2, Login: "oleg", Role: common.RoleUser},
 			},
 		},
 		{
 			name: "OK page 2 pageLimit 0",
 			args: args{page: 2, pageLimit: 0},
-			want: []*api.UserBasic{},
+			want: []*common.UserBasic{},
 		},
 	}
 	for _, tt := range tests {
@@ -492,7 +495,7 @@ func TestStorage_GetDrawing(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    args
-		want    *api.Drawing
+		want    *common.Drawing
 		wantErr bool
 	}{
 		{
@@ -534,7 +537,7 @@ func TestStorage_GetDrawingOfUser(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    args
-		want    *api.Drawing
+		want    *common.Drawing
 		wantErr bool
 	}{
 		{
@@ -572,7 +575,7 @@ func TestStorage_GetDrawingOfUser(t *testing.T) {
 	}
 }
 
-func checkUpdateDrawing(t *testing.T, storage *Storage, drawing *api.Drawing, userID uint, wantErr bool) {
+func checkUpdateDrawing(t *testing.T, storage *Storage, drawing *common.Drawing, userID uint, wantErr bool) {
 	var err error
 	if userID == 0 {
 		err = storage.UpdateDrawing(drawing)
@@ -600,7 +603,7 @@ func TestStorage_UpdateDrawing(t *testing.T) {
 	defer deleteTempStorage()
 
 	type args struct {
-		drawing *api.Drawing
+		drawing *common.Drawing
 	}
 	tests := []struct {
 		name    string
@@ -609,11 +612,11 @@ func TestStorage_UpdateDrawing(t *testing.T) {
 	}{
 		{
 			name: "OK",
-			args: args{&api.Drawing{DrawingBasic: api.DrawingBasic{ID: 1, Name: "Updated Drawing"}, GGDrawing: drawings[2].GGDrawing}},
+			args: args{&common.Drawing{DrawingBasic: common.DrawingBasic{ID: 1, Name: "Updated Drawing"}, GGDrawing: drawings[2].GGDrawing}},
 		},
 		{
 			name:    "Not found",
-			args:    args{&api.Drawing{DrawingBasic: api.DrawingBasic{ID: 92, Name: "Not Updated Drawing"}, GGDrawing: drawings[2].GGDrawing}},
+			args:    args{&common.Drawing{DrawingBasic: common.DrawingBasic{ID: 92, Name: "Not Updated Drawing"}, GGDrawing: drawings[2].GGDrawing}},
 			wantErr: true,
 		},
 	}
@@ -630,7 +633,7 @@ func TestStorage_UpdateDrawingOfUser(t *testing.T) {
 
 	type args struct {
 		userID  uint
-		drawing *api.Drawing
+		drawing *common.Drawing
 	}
 	tests := []struct {
 		name    string
@@ -641,14 +644,14 @@ func TestStorage_UpdateDrawingOfUser(t *testing.T) {
 			name: "OK",
 			args: args{
 				userID:  1,
-				drawing: &api.Drawing{DrawingBasic: api.DrawingBasic{ID: 2, Name: "Updated Drawing"}, GGDrawing: drawings[3].GGDrawing},
+				drawing: &common.Drawing{DrawingBasic: common.DrawingBasic{ID: 2, Name: "Updated Drawing"}, GGDrawing: drawings[3].GGDrawing},
 			},
 		},
 		{
 			name: "UserConfident don't have access",
 			args: args{
 				userID:  2,
-				drawing: &api.Drawing{DrawingBasic: api.DrawingBasic{ID: 9, Name: "Updated Drawing"}, GGDrawing: drawings[3].GGDrawing},
+				drawing: &common.Drawing{DrawingBasic: common.DrawingBasic{ID: 9, Name: "Updated Drawing"}, GGDrawing: drawings[3].GGDrawing},
 			},
 			wantErr: true,
 		},
@@ -656,7 +659,7 @@ func TestStorage_UpdateDrawingOfUser(t *testing.T) {
 			name: "Not found drawing by ID",
 			args: args{
 				userID:  1,
-				drawing: &api.Drawing{DrawingBasic: api.DrawingBasic{ID: 44, Name: "Updated Drawing"}, GGDrawing: drawings[3].GGDrawing},
+				drawing: &common.Drawing{DrawingBasic: common.DrawingBasic{ID: 44, Name: "Updated Drawing"}, GGDrawing: drawings[3].GGDrawing},
 			},
 			wantErr: true,
 		},
@@ -664,7 +667,7 @@ func TestStorage_UpdateDrawingOfUser(t *testing.T) {
 			name: "Not found user by ID",
 			args: args{
 				userID:  44,
-				drawing: &api.Drawing{DrawingBasic: api.DrawingBasic{ID: 9, Name: "Updated Drawing"}, GGDrawing: drawings[3].GGDrawing},
+				drawing: &common.Drawing{DrawingBasic: common.DrawingBasic{ID: 9, Name: "Updated Drawing"}, GGDrawing: drawings[3].GGDrawing},
 			},
 			wantErr: true,
 		},
@@ -786,13 +789,13 @@ func TestStorage_GetDrawingsList(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    args
-		want    []*api.DrawingBasic
+		want    []*common.DrawingBasic
 		wantErr bool
 	}{
 		{
 			name: "OK 1: page 1, pageLimit 30",
 			args: args{userID: 1, page: 1, pageLimit: 30},
-			want: []*api.DrawingBasic{
+			want: []*common.DrawingBasic{
 				&drawings[4].DrawingBasic,
 				&drawings[2].DrawingBasic,
 			},
@@ -800,7 +803,7 @@ func TestStorage_GetDrawingsList(t *testing.T) {
 		{
 			name: "OK 2: page 2, pageLimit 2",
 			args: args{userID: 3, page: 2, pageLimit: 2},
-			want: []*api.DrawingBasic{
+			want: []*common.DrawingBasic{
 				&drawings[4].DrawingBasic,
 				&drawings[3].DrawingBasic,
 			},
@@ -808,7 +811,7 @@ func TestStorage_GetDrawingsList(t *testing.T) {
 		{
 			name: "OK 3: page 2, pageLimit 0",
 			args: args{userID: 1, page: 2, pageLimit: 0},
-			want: []*api.DrawingBasic{},
+			want: []*common.DrawingBasic{},
 		},
 		{
 			name:    "Not found user",
@@ -874,7 +877,7 @@ func TestStorage_CreateDrawings(t *testing.T) {
 
 	type args struct {
 		userID  uint
-		drawing *api.Drawing
+		drawing *common.Drawing
 	}
 	tests := []struct {
 		name    string
@@ -883,11 +886,11 @@ func TestStorage_CreateDrawings(t *testing.T) {
 	}{
 		{
 			name: "OK",
-			args: args{userID: 1, drawing: &api.Drawing{DrawingBasic: api.DrawingBasic{ID: 10, Name: "Drawing 10"}, GGDrawing: drawings[2].GGDrawing}},
+			args: args{userID: 1, drawing: &common.Drawing{DrawingBasic: common.DrawingBasic{ID: 10, Name: "Drawing 10"}, GGDrawing: drawings[2].GGDrawing}},
 		},
 		{
 			name:    "Not found user",
-			args:    args{userID: 123, drawing: &api.Drawing{DrawingBasic: api.DrawingBasic{ID: 10, Name: "Drawing 10"}, GGDrawing: drawings[2].GGDrawing}},
+			args:    args{userID: 123, drawing: &common.Drawing{DrawingBasic: common.DrawingBasic{ID: 10, Name: "Drawing 10"}, GGDrawing: drawings[2].GGDrawing}},
 			wantErr: true,
 		},
 	}
@@ -915,7 +918,7 @@ func TestStorage_CreateDrawingPermission(t *testing.T) {
 	defer deleteTempStorage()
 
 	type args struct {
-		permission *api.DrawingPermission
+		permission *common.DrawingPermission
 	}
 	tests := []struct {
 		name    string
@@ -924,9 +927,9 @@ func TestStorage_CreateDrawingPermission(t *testing.T) {
 	}{
 		{
 			name: "OK",
-			args: args{permission: &api.DrawingPermission{
-				User:    &api.UserBasic{ID: 1, Login: "maxim", Role: api.RoleAdmin},
-				Drawing: &api.DrawingBasic{ID: 1},
+			args: args{permission: &common.DrawingPermission{
+				User:    &common.UserBasic{ID: 1, Login: "maxim", Role: common.RoleAdmin},
+				Drawing: &common.DrawingBasic{ID: 1},
 				Get:     true,
 				Change:  false,
 				Delete:  false,
@@ -936,9 +939,9 @@ func TestStorage_CreateDrawingPermission(t *testing.T) {
 		},
 		{
 			name: "Exist",
-			args: args{permission: &api.DrawingPermission{
-				User:    &api.UserBasic{ID: 1, Login: "maxim", Role: api.RoleAdmin},
-				Drawing: &api.DrawingBasic{ID: 2},
+			args: args{permission: &common.DrawingPermission{
+				User:    &common.UserBasic{ID: 1, Login: "maxim", Role: common.RoleAdmin},
+				Drawing: &common.DrawingBasic{ID: 2},
 				Get:     true,
 				Change:  false,
 				Delete:  false,
@@ -968,15 +971,15 @@ func TestStorage_GetDrawingPermission(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    args
-		want    *api.DrawingPermission
+		want    *common.DrawingPermission
 		wantErr bool
 	}{
 		{
 			name: "OK",
 			args: args{userID: 1, drawingID: 2},
-			want: &api.DrawingPermission{
-				User:    &api.UserBasic{ID: 1, Login: "maxim", Role: api.RoleAdmin},
-				Drawing: &api.DrawingBasic{ID: 2, Name: "Second"},
+			want: &common.DrawingPermission{
+				User:    &common.UserBasic{ID: 1, Login: "maxim", Role: common.RoleAdmin},
+				Drawing: &common.DrawingBasic{ID: 2, Name: "Second"},
 				Owner:   true,
 			},
 		},
@@ -1005,7 +1008,7 @@ func TestStorage_UpdateDrawingPermission(t *testing.T) {
 	defer deleteTempStorage()
 
 	type args struct {
-		permission *api.DrawingPermission
+		permission *common.DrawingPermission
 	}
 	tests := []struct {
 		name       string
@@ -1015,25 +1018,25 @@ func TestStorage_UpdateDrawingPermission(t *testing.T) {
 	}{
 		{
 			name: "OK",
-			args: args{permission: &api.DrawingPermission{User: &users[3].UserBasic, Drawing: &drawings[2].DrawingBasic, Get: true, Change: true, Delete: true}},
+			args: args{permission: &common.DrawingPermission{User: &users[3].UserBasic, Drawing: &drawings[2].DrawingBasic, Get: true, Change: true, Delete: true}},
 		},
 		{
 			name:    "Owner cannot be changed",
-			args:    args{permission: &api.DrawingPermission{User: &users[3].UserBasic, Drawing: &drawings[3].DrawingBasic, Owner: false}},
+			args:    args{permission: &common.DrawingPermission{User: &users[3].UserBasic, Drawing: &drawings[3].DrawingBasic, Owner: false}},
 			wantErr: true,
 		},
 		{
 			name:    "Not found",
-			args:    args{permission: &api.DrawingPermission{User: &users[2].UserBasic, Drawing: &drawings[2].DrawingBasic, Get: true}},
+			args:    args{permission: &common.DrawingPermission{User: &users[2].UserBasic, Drawing: &drawings[2].DrawingBasic, Get: true}},
 			wantErr: true,
 		},
 		{
 			name: "Off owner in update",
-			args: args{permission: &api.DrawingPermission{User: &users[3].UserBasic, Drawing: &drawings[2].DrawingBasic, Get: true, Change: true, Delete: true, Owner: true}},
+			args: args{permission: &common.DrawingPermission{User: &users[3].UserBasic, Drawing: &drawings[2].DrawingBasic, Get: true, Change: true, Delete: true, Owner: true}},
 		},
 		{
 			name:       "Auto delete",
-			args:       args{permission: &api.DrawingPermission{User: &users[3].UserBasic, Drawing: &drawings[1].DrawingBasic}}, // full false
+			args:       args{permission: &common.DrawingPermission{User: &users[3].UserBasic, Drawing: &drawings[1].DrawingBasic}}, // full false
 			wantRemove: true,
 		},
 	}
@@ -1095,11 +1098,11 @@ func TestStorage_RemoveDrawingPermission(t *testing.T) {
 				return
 			}
 			if !tt.wantErr {
-				if _, err := storage.GetDrawingPermission(tt.args.userID, tt.args.drawingID); err != nil && errors.Is(err, api.ErrNotFound) {
+				_, err := storage.GetDrawingPermission(tt.args.userID, tt.args.drawingID)
+				if err != nil && errors.Is(err, api.ErrNotFound) {
 					return
-				} else {
-					t.Errorf("GetDrawingPermission() must be ErrNotFound, got %v", err)
 				}
+				t.Errorf("GetDrawingPermission() must be ErrNotFound, got %v", err)
 			}
 		})
 	}
@@ -1115,13 +1118,13 @@ func TestStorage_GetDrawingsPermissionsOfDrawing(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    args
-		want    []*api.DrawingPermission
+		want    []*common.DrawingPermission
 		wantErr bool
 	}{
 		{
 			name: "OK",
 			args: args{drawingID: 1},
-			want: []*api.DrawingPermission{
+			want: []*common.DrawingPermission{
 				permissions[6],
 				permissions[2],
 			},
@@ -1129,7 +1132,7 @@ func TestStorage_GetDrawingsPermissionsOfDrawing(t *testing.T) {
 		{
 			name: "Not found",
 			args: args{drawingID: 10},
-			want: []*api.DrawingPermission{},
+			want: []*common.DrawingPermission{},
 		},
 	}
 	for _, tt := range tests {
@@ -1156,13 +1159,13 @@ func TestStorage_GetDrawingsPermissionsOfUser(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    args
-		want    []*api.DrawingPermission
+		want    []*common.DrawingPermission
 		wantErr bool
 	}{
 		{
 			name: "OK",
 			args: args{userID: 3},
-			want: []*api.DrawingPermission{
+			want: []*common.DrawingPermission{
 				permissions[7],
 				permissions[6],
 				permissions[5],
@@ -1172,7 +1175,7 @@ func TestStorage_GetDrawingsPermissionsOfUser(t *testing.T) {
 		{
 			name: "Not found",
 			args: args{userID: 30},
-			want: []*api.DrawingPermission{},
+			want: []*common.DrawingPermission{},
 		},
 	}
 	for _, tt := range tests {

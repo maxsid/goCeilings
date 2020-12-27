@@ -4,14 +4,15 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"github.com/go-test/deep"
-	"github.com/maxsid/goCeilings/value"
 	"io"
 	"math"
 	"net/http"
 	"net/url"
 	"reflect"
 	"testing"
+
+	"github.com/go-test/deep"
+	"github.com/maxsid/goCeilings/value"
 )
 
 func Test_readListStatData(t *testing.T) {

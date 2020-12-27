@@ -2,27 +2,29 @@ package api
 
 import (
 	"fmt"
-	"github.com/dgrijalva/jwt-go"
 	"time"
+
+	"github.com/dgrijalva/jwt-go"
+	"github.com/maxsid/goCeilings/server/common"
 )
 
 var SigningSecret = "xjh7VdjjGgC38XzDvHquQdc3Z5Gs2CNdW6kk3rqPuUNp2vnRG3rXbv33mKbZxHAE"
 
-type UserJWTClaims struct {
+type userJWTClaims struct {
 	jwt.StandardClaims
-	UserBasic
+	common.UserBasic
 }
 
-func createUserJWTToken(user UserBasic, secret string, timeout time.Duration) (string, error) {
-	claims := UserJWTClaims{UserBasic: user}
+func createUserJWTToken(user common.UserBasic, secret string, timeout time.Duration) (string, error) {
+	claims := userJWTClaims{UserBasic: user}
 	claims.IssuedAt = time.Now().Unix()
 	claims.ExpiresAt = time.Now().Add(timeout).Unix()
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(secret))
 }
 
-func readUserJWTToken(tokenStr, secret string) (*UserJWTClaims, error) {
-	token, err := jwt.ParseWithClaims(tokenStr, &UserJWTClaims{}, func(token *jwt.Token) (interface{}, error) {
+func readUserJWTToken(tokenStr, secret string) (*userJWTClaims, error) {
+	token, err := jwt.ParseWithClaims(tokenStr, &userJWTClaims{}, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("bad signing method")
 		}
@@ -31,7 +33,7 @@ func readUserJWTToken(tokenStr, secret string) (*UserJWTClaims, error) {
 	if err != nil {
 		return nil, err
 	}
-	if claims, ok := token.Claims.(*UserJWTClaims); ok && token.Valid {
+	if claims, ok := token.Claims.(*userJWTClaims); ok && token.Valid {
 		return claims, nil
 	}
 	return nil, fmt.Errorf("bad claims type or token is not valid")
